@@ -7,8 +7,8 @@ classdef preprocessDWI
 
      properties
         % Properties to store file paths and other relevant parameters.
-        fmapMag                 % Field map magnitude
-        fmapPhase               % Field map phase
+        fmapMag = ''                % Field map magnitude [optional]
+        fmapPhase = ''              % Field map phase [optional]
         fmapReversed          % Reversed field map for TOPUP
         dwi                          % Diffusion-weighted imaging data
         bval                         % B-values for DWI data
@@ -21,21 +21,53 @@ classdef preprocessDWI
         dsiStudio                 % DSI Studio executable location
         dockerSynb0disco   % Docker location for Synb0-DisCo
         singularityLoc      % singularity executable location
+        
     end
-
+    
     methods
         % Methods for different stages of DWI data processing.
 
+        function obj = preprocessDWI()
+            % Load JSON configuration
+            configFile = fullfile(fileparts(pwd), 'setup_environment.json');
+            configData = jsondecode(fileread(configFile));
+
+            % Assign properties from JSON
+            obj.freeSurferLoc = configData.freeSurferLoc;
+            obj.fslLoc = configData.fslLoc;
+            obj.dsiStudio = configData.dsiStudio;
+            obj.dockerSynb0disco = configData.dockerSynb0disco;
+            obj.singularityLoc = configData.singularityLoc;
+
+            % FSL Setup
+            setenv('FSLDIR', configData.FSLDIR);
+            setenv('FSLOUTPUTTYPE', configData.FSLOUTPUTTYPE);
+            fsldir = getenv('FSLDIR');
+            fsldirmpath = sprintf('%s/etc/matlab', fsldir);
+            path(path, fsldirmpath);
+            clear fsldir fsldirmpath;
+
+            % Add dependencies
+            addpath(genpath(configData.DEPENDENCIES_PATH));
+
+            % Freesurfer setup
+            setenv('FREESURFER_HOME', configData.FREESURFER_HOME);
+            setenv('SUBJECTS_DIR', configData.SUBJECTS_DIR);
+            FREESURFER_HOME = getenv('FREESURFER_HOME');
+            freesurferdirmpath = sprintf('%s/SetUpFreeSurfer.sh', FREESURFER_HOME);
+            system(['sh ' freesurferdirmpath], '-echo');
+            clear freesurferdirmpath FREESURFER_HOME;
+        end
+ 
+
         function data_for_eddy = synth_fieldmap(obj,data_for_eddy)
             % Generates a synthetic field map for DWI data.
-            config_preprocessDWI;
             try
 
                 mustBeFile(fullfile(obj.output, 'preprocessDWI/synthetic_fmap/OUTPUTS/b0_u.nii.gz'));
                 data_for_eddy.synthb0undistorted = fullfile(obj.output, 'preprocessDWI/synthetic_fmap/OUTPUTS/b0_u.nii.gz');
 
             catch
-                config_preprocessDWI;
 
                 mkdir(obj.output, 'preprocessDWI/synthetic_fmap/INPUTS');
                 mkdir(obj.output, 'preprocessDWI/synthetic_fmap/OUTPUTS');
@@ -68,7 +100,6 @@ classdef preprocessDWI
 
         function data_for_eddy = synth_fieldmap_singularity(obj,data_for_eddy)
             % Alternative method to generate a synthetic field map using singularity.
-            config_preprocessDWI;
 
             try
 
@@ -76,7 +107,6 @@ classdef preprocessDWI
                 data_for_eddy.synthb0undistorted = fullfile(obj.output, 'preprocessDWI/synthetic_fmap/OUTPUTS/b0_u.nii.gz');
 
             catch
-                config_preprocessDWI;
 
                 mkdir(obj.output, 'preprocessDWI/synthetic_fmap/INPUTS');
                 mkdir(obj.output, 'preprocessDWI/synthetic_fmap/OUTPUTS');
@@ -108,7 +138,6 @@ classdef preprocessDWI
         function data_for_tracking = synth_topupEddy(obj, data_for_eddy)
             % Applies TOPUP and Eddy correction using synthetic field map.
 
-            config_preprocessDWI;
             mkdir(obj.output, 'preprocessDWI/topupEddy');
 
             try
@@ -205,7 +234,6 @@ classdef preprocessDWI
     function data_for_eddy = fieldmap(obj)
         % Prepares and processes field map for Eddy correction.
 
-        config_preprocessDWI;
         mkdir(obj.output, 'preprocessDWI/fieldmap');
 
         try
@@ -332,7 +360,6 @@ classdef preprocessDWI
     function data_for_tracking = eddyFSL(obj, data_for_eddy)
         % Performs Eddy current correction using FSL.
 
-        config_preprocessDWI;
         mkdir(obj.output, 'preprocessDWI/eddy');
 
         try
@@ -384,7 +411,6 @@ classdef preprocessDWI
     function data_for_tracking = topupEddy(obj, data_for_eddy)
         % Applies TOPUP and Eddy correction for DWI data.
 
-        config_preprocessDWI;
         mkdir(obj.output, 'preprocessDWI/topupEddy');
 
         try
@@ -479,7 +505,6 @@ classdef preprocessDWI
     function data_for_tracking = registerEPI2t1(obj, data_for_tracking)
         % Registers EPI DWI data to T1-weighted structural MRI
 
-        config_preprocessDWI;
         outdir = fullfile(obj.output, 'connectivityDWI/bbr2freesurferT1');
 
         mkdir(outdir);
@@ -577,7 +602,6 @@ classdef preprocessDWI
 
         catch
 
-            config_preprocessDWI;
 
             outdir = fullfile(obj.output, 'preprocessDWI/dsiStudio');
             mkdir(outdir);
@@ -626,7 +650,7 @@ classdef preprocessDWI
 
         catch
 
-            config_preprocessDWI;
+            
 
             cmd = [obj.dsiStudio ...
                 ' --action=rec' ...
@@ -686,7 +710,6 @@ classdef preprocessDWI
 
         catch
 
-            config_preprocessDWI;
             %% Perform tractography without itterations
 
             cmd = [obj.dsiStudio ...
@@ -739,7 +762,7 @@ classdef preprocessDWI
 
         catch
 
-            config_preprocessDWI;
+            
             %% Perform tractography in itterations
 
             for ittr = 1:10
@@ -848,7 +871,7 @@ classdef preprocessDWI
     function data_for_tracking = alligntracts2T1(obj, data_for_tracking)
         % Aligns computed fiber tracts to T1-weighted MRI data.
 
-        config_preprocessDWI;
+        
         outdir = fullfile(obj.output, 'connectivityDWI/tracts_to_T1');
         mkdir(outdir);
 
@@ -942,7 +965,7 @@ classdef preprocessDWI
     function data_for_tracking = getROICord(obj, data_for_tracking, atlas_name, lookupTable)
         % Retrieves Region of Interest (ROI) coordinates from an atlas.
 
-        config_preprocessDWI;
+        
         outdir = fullfile(obj.output, 'connectivityDWI', atlas_name);
         mkdir(outdir);
 
@@ -990,7 +1013,7 @@ classdef preprocessDWI
     function data_for_tracking = atlasConnectivity(obj, data_for_tracking, atlas_name, atlas_file, lookupTable)
         % Retrieves Region of Interest (ROI) coordinates from an atlas.
 
-        config_preprocessDWI;
+        
         outdir = fullfile(obj.output, 'connectivityDWI', atlas_name);
         mkdir(outdir);
 
@@ -1072,7 +1095,7 @@ classdef preprocessDWI
     function data_for_tracking = filterTractsbyAtlas(obj, data_for_tracking, atlas_name)
         % Filters tractography data based on atlas-defined ROIs.
 
-        config_preprocessDWI;
+        
         outdir = fullfile(obj.output, 'connectivityDWI', atlas_name);
         mkdir(outdir);
 
@@ -1143,7 +1166,7 @@ classdef preprocessDWI
     function data_for_tracking = connectROI(obj, data_for_tracking, atlas_name)
         % Generates connectivity matrices based on ROI analysis.
 
-        config_preprocessDWI;
+        
         outdir = fullfile(obj.output, 'connectivityDWI', atlas_name);
         mkdir(outdir);
 
