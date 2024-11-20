@@ -9,13 +9,13 @@ classdef preprocessDWI
         % Properties to store file paths and other relevant parameters.
         fmapMag = ''                % Field map magnitude [optional]
         fmapPhase = ''              % Field map phase [optional]
-        fmapReversed          % Reversed field map for TOPUP
+        fmapReversed = ''         % Reversed field map for TOPUP
         dwi                          % Diffusion-weighted imaging data
         bval                         % B-values for DWI data
         bvec                        % B-vectors for DWI data
         t1mri                       % T1-weighted MRI data
         output                     % Output directory path
-        freeSurferDir           % FreeSurfer directory path
+        freeSurferDir = ''          % FreeSurfer directory path
         freeSurferLoc          % FreeSurfer executable location
         fslLoc                      % FSL executable location
         dsiStudio                 % DSI Studio executable location
@@ -29,7 +29,7 @@ classdef preprocessDWI
 
         function obj = preprocessDWI()
             % Load JSON configuration
-            configFile = fullfile(fileparts(pwd), 'setup_environment.json');
+            configFile = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'setup_environment.json');
             configData = jsondecode(fileread(configFile));
 
             % Assign properties from JSON
