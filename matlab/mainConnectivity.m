@@ -19,13 +19,12 @@ subject.freeSurferDir = fullfile(subject.output, 'freesurfer');
 
 data_for_tracking.dwi_eddy = fullfile(subject.output, ...
 'preprocessDWI', 'topupEddy', 'dwi_eddy.nii.gz');
-mustbefile(data_for_tracking.dwi_eddy);
+mustBeFile(data_for_tracking.dwi_eddy);
 
 data_for_tracking.dwi_eddy_bvec = fullfile(subject.output, ...
 'preprocessDWI', 'topupEddy', 'dwi_eddy.eddy_rotated_bvecs');
-mustbefile(data_for_tracking.dwi_eddy_bvec);
+mustBeFile(data_for_tracking.dwi_eddy_bvec);
 
-%% Tractography Workflow
 % 1. Register DWI data to T1-weighted MRI
 data_for_tracking = subject.registerEPI2t1(data_for_tracking);
 

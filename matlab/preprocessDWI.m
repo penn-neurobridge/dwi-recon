@@ -53,6 +53,8 @@ classdef preprocessDWI
             % Freesurfer setup
             setenv('FREESURFER_HOME', configData.FREESURFER_HOME);
             setenv('SUBJECTS_DIR', configData.SUBJECTS_DIR);
+            setenv('FS_LICENSE', configData.FS_LICENSE);
+            setenv('SURFER_FRONTDOOR', configData.SURFER_FRONTDOOR);
             FREESURFER_HOME = getenv('FREESURFER_HOME');
             freesurferdirmpath = sprintf('%s/SetUpFreeSurfer.sh', FREESURFER_HOME);
             system(['sh ' freesurferdirmpath], '-echo');

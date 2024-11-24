@@ -12,6 +12,8 @@ _build/
 subjects
 jobs
 setup_environment.json
+**/core*
+
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
