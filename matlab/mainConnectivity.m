@@ -49,6 +49,24 @@ atlas_file = [subject.freeSurferDir '/mri/aparc+aseg.nii.gz'];
 lookupTable = 'atlas_lookuptable/desikanKilliany.csv';
 data_for_tracking = subject.atlasConnectivity(data_for_tracking, atlas_name, atlas_file, lookupTable);
 
+% If there is an ieeg_recon folder with a file named electrodes2ROI.csv in module 3 then run the following code
+if isfile(fullfile(subject.output, 'ieeg_recon', 'module3', 'electrodes2ROI.csv'))
+    data_for_tracking = subject.fiberTracking_ittr(data_for_tracking,'saveTrksubVox');
+
+    % Align the computed fiber tracts with the T1-weighted MRI data
+    data_for_tracking = subject.alligntracts2T1(data_for_tracking);
+    
+    % Filters the computed tracts based on the ROIs and sets parameters for tract filtering.
+    atlas_name = 'aparc+aseg';
+    data_for_tracking.nPoints = 3; % Number of streamline points at start/end to include
+    data_for_tracking.roiDia = 2; % Diameter of ROI for filtering
+    data_for_tracking = subject.filterTractsbyAtlas(data_for_tracking,atlas_name);
+
+    % Generate Connectivity Matrices
+    % Processes the filtered tracts to generate connectivity matrices between ROIs.
+    data_for_tracking = subject.connectROI(data_for_tracking,atlas_name);
+end
+
 % This DSI because it has load rois with parcel numbers 
 subject.dsiStudio = 'singularity exec -B /var,/run -B /project/davis_group_1/nishants /project/davis_group_1/nishants/dsistudio_latest.sif  dsi_studio';
 
@@ -81,5 +99,6 @@ atlas_name = 'lausanne2018scale5';
 atlas_file = [subject.freeSurferDir '/mri/lausanne2018.scale5.nii.gz'];
 lookupTable = 'atlas_lookuptable/lausanne2018scale5.csv';
 data_for_tracking = subject.atlasConnectivity(data_for_tracking, atlas_name, atlas_file, lookupTable);
+
 
 end
