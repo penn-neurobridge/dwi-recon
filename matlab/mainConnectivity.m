@@ -65,6 +65,19 @@ if isfile(fullfile(subject.output, 'ieeg_recon', 'module3', 'electrodes2ROI.csv'
     % Generate Connectivity Matrices
     % Processes the filtered tracts to generate connectivity matrices between ROIs.
     data_for_tracking = subject.connectROI(data_for_tracking,atlas_name);
+
+    % get connectivity matrix between electrodes
+    sub_IEEGDWI = iEEGsc(subject.output)
+
+    electrodes = sub_IEEGDWI.iEEGgrey2white;
+    
+    sphereDia = 3; % Diameter of ROI for filtering
+    edgeList = sub_IEEGDWI.makeEdgeList(electrodes,sphereDia);
+    sub_IEEGDWI.makeConnectivityMatrix(edgeList,sphereDia);
+    
+    sphereDia = 5; % Diameter of ROI for filtering
+    edgeList = sub_IEEGDWI.makeEdgeList(electrodes,sphereDia);
+    sub_IEEGDWI.makeConnectivityMatrix(edgeList,sphereDia);
 end
 
 % This DSI because it has load rois with parcel numbers 
