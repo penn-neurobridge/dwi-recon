@@ -1,12 +1,70 @@
 classdef iEEGsc
 
     properties
+        output
+    end
+    
+    properties (Dependent)
         whole_brain_trk
         whole_brain_trksubVox
         trk_to_t1surfRAS
         freeSurferDir
-        output
         IEEGdata
+    end
+
+    properties (Access = private, Constant)
+        DEFAULT_PATHS = struct(...
+            'whole_brain_trk', fullfile('preprocessDWI', 'dsiStudio', 'whole_brain_trk.mat'), ...
+            'whole_brain_trksubVox', fullfile('preprocessDWI', 'dsiStudio', 'whole_brain_trksubVox.mat'), ...
+            'trk_to_t1surfRAS', fullfile('connectivityDWI', 'tracts_to_T1','trk_to_t1surfRAS.txt'), ...
+            'freeSurferDir', 'freesurfer', ...
+            'IEEGdata', fullfile('ieeg_recon', 'module3','electrodes2ROI.csv')...
+        )
+    end
+
+    methods
+        % Constructor
+        function obj = iEEGsc(output)
+            obj.output = output;
+        end
+    end
+
+    methods (Access = private)
+        function path = getPath(obj, property)
+            if isfield(obj.DEFAULT_PATHS, property)
+                path = fullfile(obj.output, obj.DEFAULT_PATHS.(property));
+            else
+                error('Unknown property: %s', property)
+            end
+        end
+    end
+
+    methods
+        % Getters for dependent properties
+        function val = get.whole_brain_trk(obj)
+            val = obj.getPath('whole_brain_trk');
+            mustBeFile(val)
+        end
+        
+        function val = get.whole_brain_trksubVox(obj)
+            val = obj.getPath('whole_brain_trksubVox');
+            mustBeFile(val)
+        end
+        
+        function val = get.trk_to_t1surfRAS(obj)
+            val = obj.getPath('trk_to_t1surfRAS');
+            mustBeFile(val)
+        end
+        
+        function val = get.freeSurferDir(obj)
+            val = obj.getPath('freeSurferDir');
+            mustBeFolder(val)
+        end
+        
+        function val = get.IEEGdata(obj)
+            val = obj.getPath('IEEGdata');
+            mustBeFile(val)
+        end
     end
 
     methods
