@@ -46,7 +46,7 @@ class IEEGPipeline:
         Parameters
         ----------
         subject : str
-            Subject ID (e.g. "sub-RID1171").
+            Subject ID (e.g. "sub-PennEPIxxx").
         sphere_diameters : list of float
             Sphere diameters in mm (default: [3, 5]).
         n_streamlines : int

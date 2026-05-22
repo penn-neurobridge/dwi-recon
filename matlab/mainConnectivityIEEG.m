@@ -7,13 +7,13 @@ function mainConnectivityIEEG(subjects, BIDS_path, dwi_repo_path)
 %     3. iEEGsc pipeline     (connectivityIEEG/)
 %
 % Usage (test with one subject first):
-%   subjects = {'sub-RID1171'};
-%   BIDS_path = '/Users/nishant/Documents/Neurobridge/Data/Epilepsy/Penn';
-%   dwi_repo_path = '/Users/nishant/Dropbox/Sinha/Lab/Research/projects/processor-tools/dwi_minimum_preprocessing';
+%   subjects = {'sub-PennEPIxxx'};
+%   BIDS_path = '/path/to/bids';
+%   dwi_repo_path = '/path/to/dwi_minimum_preprocessing';
 %   mainConnectivityIEEG(subjects, BIDS_path, dwi_repo_path);
 %
-% All 5 subjects:
-%   subjects = {'sub-RID0445','sub-RID1046','sub-RID1081','sub-RID1116','sub-RID1171'};
+% Multiple subjects:
+%   subjects = {'sub-PennEPIxxx','sub-PennEPIyyy','sub-PennEPIzzz'};
 %   mainConnectivityIEEG(subjects, BIDS_path, dwi_repo_path);
 
 addpath(genpath(dwi_repo_path));

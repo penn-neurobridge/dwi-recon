@@ -40,7 +40,7 @@ class DWIPipeline:
         Parameters
         ----------
         subject : str
-            Subject ID (e.g. "sub-RID1171").
+            Subject ID (e.g. "sub-PennEPIxxx").
         steps : list of str, optional
             Steps to execute. Default: all steps.
             Valid: "tracking", "alignment", "atlas".
@@ -182,7 +182,7 @@ def run_dwi_pipeline(
     Parameters
     ----------
     subjects : list of str
-        Subject IDs (e.g. ["sub-RID0445", "sub-RID1171"]).
+        Subject IDs (e.g. ["sub-PennEPIxxx", "sub-PennEPIyyy"]).
     bids_path : Path
         Root BIDS directory.
     steps : list of str, optional

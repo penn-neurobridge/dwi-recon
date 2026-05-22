@@ -78,17 +78,17 @@ This repository provides **two separate pipelines**:
 ```bash
 # Full DWI pipeline (default: tracking + alignment + atlas)
 uv run dwi-preprocess \
-    -s sub-RID0445,sub-RID1046,sub-RID1081 \
+    -s sub-PennEPIxxx,sub-PennEPIyyy,sub-PennEPIzzz \
     -b /path/to/bids
 
 # Only tracking + alignment (skip atlas)
 uv run dwi-preprocess \
-    -s sub-RID1171 \
+    -s sub-PennEPIxxx \
     -b /path/to/bids --steps tracking,alignment
 
 # Custom streamline count
 uv run dwi-preprocess \
-    -s sub-RID1171 \
+    -s sub-PennEPIxxx \
     -b /path/to/bids --n-streamlines 5000000
 ```
 
@@ -106,12 +106,12 @@ Requires the DWI pipeline to have run first. Subjects without
 ```bash
 # Default (3mm + 5mm spheres)
 uv run dwi-ieeg-connectivity \
-    -s sub-RID0445,sub-RID1046,sub-RID1081,sub-RID1116,sub-RID1171 \
+    -s sub-PennEPIxxx,sub-PennEPIyyy,sub-PennEPIzzz \
     -b /path/to/bids
 
 # Custom sphere diameters
 uv run dwi-ieeg-connectivity \
-    -s sub-RID1171 \
+    -s sub-PennEPIxxx \
     -b /path/to/bids --sphere-diameters 3,5,10
 ```
 
@@ -125,13 +125,13 @@ from dwi_preprocessing import Config, DWIPipeline, IEEGPipeline, run_dwi_pipelin
 
 # ── DWI pipeline (all subjects) ──
 run_dwi_pipeline(
-    subjects=["sub-RID0445", "sub-RID1046"],
+    subjects=["sub-PennEPIxxx", "sub-PennEPIyyy"],
     bids_path=Path("/path/to/bids"),
 )
 
 # ── iEEG pipeline (electrode subjects only) ──
 run_ieeg_pipeline(
-    subjects=["sub-RID1171"],
+    subjects=["sub-PennEPIxxx"],
     bids_path=Path("/path/to/bids"),
     sphere_diameters=[3, 5],
 )
@@ -151,7 +151,7 @@ The pipeline expects a BIDS-like directory structure:
 
 ```
 <BIDS_path>/
-  sub-RID1171/
+  sub-PennEPIxxx/
     derivatives/
       freesurfer/           # FreeSurfer recon-all output
         mri/                # T1.mgz, wm.mgz, brain.mgz, aparc+aseg.mgz

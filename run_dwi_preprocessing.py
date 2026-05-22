@@ -6,13 +6,13 @@ atlas-based structural connectivity.
 
 Usage:
   # Full DWI pipeline (default: all steps)
-  uv run dwi-preprocess -s sub-RID0445,sub-RID1046 -b /path/to/bids
+  uv run dwi-preprocess -s sub-PennEPIxxx,sub-PennEPIyyy -b /path/to/bids
 
   # Only tracking + alignment (skip atlas)
-  uv run dwi-preprocess -s sub-RID1171 -b /path/to/bids --steps tracking,alignment
+  uv run dwi-preprocess -s sub-PennEPIxxx -b /path/to/bids --steps tracking,alignment
 
   # Custom streamline count
-  uv run dwi-preprocess -s sub-RID1171 -b /path/to/bids --n-streamlines 5000000
+  uv run dwi-preprocess -s sub-PennEPIxxx -b /path/to/bids --n-streamlines 5000000
 """
 
 from pathlib import Path
@@ -27,7 +27,7 @@ app = typer.Typer(add_completion=False)
 def main(
     subjects: str = typer.Option(
         ..., "-s", "--subjects",
-        help="Comma-separated subject IDs (e.g. sub-RID0445,sub-RID1046)",
+        help="Comma-separated subject IDs (e.g. sub-PennEPIxxx,sub-PennEPIyyy)",
     ),
     bids_path: Path = typer.Option(
         ..., "-b", "--bids-path",

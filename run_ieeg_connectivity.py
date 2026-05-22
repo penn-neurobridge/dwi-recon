@@ -9,15 +9,15 @@ Requires the DWI pipeline to have run first (tracking + alignment).
 
 Usage:
   # Default (3mm + 5mm spheres)
-  uv run dwi-ieeg-connectivity -s sub-RID1171 -b /path/to/bids
+  uv run dwi-ieeg-connectivity -s sub-PennEPIxxx -b /path/to/bids
 
-  # All 5 iEEG subjects
+  # Multiple iEEG subjects
   uv run dwi-ieeg-connectivity \\
-      -s sub-RID0445,sub-RID1046,sub-RID1081,sub-RID1116,sub-RID1171 \\
+      -s sub-PennEPIxxx,sub-PennEPIyyy,sub-PennEPIzzz \\
       -b /path/to/bids
 
   # Custom sphere diameters
-  uv run dwi-ieeg-connectivity -s sub-RID1171 -b /path/to/bids --sphere-diameters 3,5,10
+  uv run dwi-ieeg-connectivity -s sub-PennEPIxxx -b /path/to/bids --sphere-diameters 3,5,10
 """
 
 from pathlib import Path
@@ -32,7 +32,7 @@ app = typer.Typer(add_completion=False)
 def main(
     subjects: str = typer.Option(
         ..., "-s", "--subjects",
-        help="Comma-separated subject IDs (e.g. sub-RID1171,sub-RID0445)",
+        help="Comma-separated subject IDs (e.g. sub-PennEPIxxx,sub-PennEPIyyy)",
     ),
     bids_path: Path = typer.Option(
         ..., "-b", "--bids-path",
