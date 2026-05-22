@@ -13,10 +13,22 @@ FROM dsistudio/dsistudio:hou-2026-05-17
 # uv (standalone binaries from the official uv image)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-# System deps for Miniforge
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# System deps for Miniforge. The base image's kitware apt repo has an
+# expired GPG key that breaks `apt-get update`; we don't need it, so drop it.
+RUN rm -f /etc/apt/sources.list.d/kitware.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
         wget ca-certificates bzip2 && \
     rm -rf /var/lib/apt/lists/*
+
+# Google Chrome (headless) so kaleido can render the alignment QC PNG.
+# Ubuntu 20.04's apt `chromium-browser` is a snap stub, so use Google's .deb.
+# kaleido's browser backend (choreographer) launches Chrome with --no-sandbox
+# by default, which is what containers need.
+RUN wget -qO /tmp/chrome.deb \
+        https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    apt-get update && \
+    apt-get install -y /tmp/chrome.deb && \
+    rm /tmp/chrome.deb && rm -rf /var/lib/apt/lists/*
 
 # Miniforge (conda) + FSL components from the official FSL conda channel
 ENV FSL_CONDA_CHANNEL="https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/public"
