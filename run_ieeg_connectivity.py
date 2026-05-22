@@ -9,15 +9,12 @@ Requires the DWI pipeline to have run first (tracking + alignment).
 
 Usage:
   # Default (3mm + 5mm spheres)
-  uv run dwi-ieeg-connectivity -s sub-PennEPIxxx -b /path/to/bids
-
-  # Multiple iEEG subjects
-  uv run dwi-ieeg-connectivity \\
-      -s sub-PennEPIxxx,sub-PennEPIyyy,sub-PennEPIzzz \\
-      -b /path/to/bids
+  uv run dwi-ieeg-connectivity -s sub-PennEPIxxx \\
+      -p /path/to/primary -d /path/to/derivatives
 
   # Custom sphere diameters
-  uv run dwi-ieeg-connectivity -s sub-PennEPIxxx -b /path/to/bids --sphere-diameters 3,5,10
+  uv run dwi-ieeg-connectivity -s sub-PennEPIxxx \\
+      -p /path/to/primary -d /path/to/derivatives --sphere-diameters 3,5,10
 """
 
 from pathlib import Path
@@ -34,10 +31,15 @@ def main(
         ..., "-s", "--subjects",
         help="Comma-separated subject IDs (e.g. sub-PennEPIxxx,sub-PennEPIyyy)",
     ),
-    bids_path: Path = typer.Option(
-        ..., "-b", "--bids-path",
+    primary_path: Path = typer.Option(
+        ..., "-p", "--primary-path",
         exists=True, file_okay=False, dir_okay=True,
-        help="Root BIDS directory containing subject folders",
+        help="BIDS primary root (raw inputs)",
+    ),
+    derivatives_path: Path = typer.Option(
+        ..., "-d", "--derivatives-path",
+        exists=True, file_okay=False, dir_okay=True,
+        help="Derivatives root (DWI outputs + iEEG outputs)",
     ),
     config: Optional[Path] = typer.Option(
         None, "-c", "--config",
@@ -63,14 +65,16 @@ def main(
 
     typer.echo("iEEG Structural Connectivity Pipeline")
     typer.echo(f"  Subjects:          {subject_list}")
-    typer.echo(f"  BIDS path:         {bids_path}")
+    typer.echo(f"  Primary:           {primary_path}")
+    typer.echo(f"  Derivatives:       {derivatives_path}")
     typer.echo(f"  Sphere diameters:  {sphere_dias}")
 
     from dwi_preprocessing.ieeg_pipeline import run_ieeg_pipeline
 
     run_ieeg_pipeline(
         subjects=subject_list,
-        bids_path=bids_path,
+        primary_path=primary_path,
+        derivatives_path=derivatives_path,
         config_path=config,
         sphere_diameters=sphere_dias,
         n_streamlines=n_streamlines,

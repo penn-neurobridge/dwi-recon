@@ -21,14 +21,22 @@ class IEEGPipeline:
 
     Parameters
     ----------
-    bids_path : Path
-        Root BIDS directory containing subject folders.
+    primary_path : Path
+        BIDS primary root (raw inputs).
+    derivatives_path : Path
+        Derivatives root (DWI outputs + iEEG outputs).
     cfg : Config
         Pipeline configuration (tool paths, env vars).
     """
 
-    def __init__(self, bids_path: Path, cfg: Config | None = None):
-        self.bids_path = Path(bids_path)
+    def __init__(
+        self,
+        primary_path: Path,
+        derivatives_path: Path,
+        cfg: Config | None = None,
+    ):
+        self.primary_path = Path(primary_path)
+        self.derivatives_path = Path(derivatives_path)
         self.cfg = cfg or Config()
 
     def run(
@@ -59,10 +67,7 @@ class IEEGPipeline:
         if sphere_diameters is None:
             sphere_diameters = [3.0, 5.0]
 
-        deriv = self.bids_path / subject / "derivatives"
-        assert deriv.is_dir(), f"Derivatives not found: {deriv}"
-
-        paths = SubjectPaths(deriv)
+        paths = SubjectPaths(self.primary_path, self.derivatives_path, subject)
 
         # Validate: electrodes must exist
         if not paths.electrodes_csv.is_file():
@@ -84,7 +89,7 @@ class IEEGPipeline:
         if not paths.trk_h5.is_file() or not paths.subvox_h5.is_file():
             print("  DWI tracking outputs missing — running fiber_tracking_ittr...")
             fiber_tracking_ittr(
-                self.cfg, paths.fib, paths.dsi_studio_dir,
+                self.cfg, paths.find_fib(), paths.dsi_studio_dir,
                 n_streamlines=n_streamlines, save_trksubvox=True,
             )
 
@@ -131,7 +136,8 @@ class IEEGPipeline:
 
 def run_ieeg_pipeline(
     subjects: list[str],
-    bids_path: Path,
+    primary_path: Path,
+    derivatives_path: Path,
     config_path: Path | None = None,
     sphere_diameters: list[float] | None = None,
     n_streamlines: int = 2_500_000,
@@ -144,8 +150,10 @@ def run_ieeg_pipeline(
     ----------
     subjects : list of str
         Subject IDs.
-    bids_path : Path
-        Root BIDS directory.
+    primary_path : Path
+        BIDS primary root (raw inputs).
+    derivatives_path : Path
+        Derivatives root.
     config_path : Path, optional
         Path to setup_environment.json.
     sphere_diameters : list of float, optional
@@ -158,7 +166,7 @@ def run_ieeg_pipeline(
     dict mapping subject IDs to their output paths.
     """
     cfg = Config(config_path) if config_path else Config()
-    pipeline = IEEGPipeline(bids_path, cfg)
+    pipeline = IEEGPipeline(primary_path, derivatives_path, cfg)
     all_results: dict[str, dict[str, Path]] = {}
 
     for i, rid in enumerate(subjects):

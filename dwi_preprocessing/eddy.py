@@ -4,12 +4,67 @@ Wraps FSL topup + eddy_openmp to correct for eddy currents, motion,
 and susceptibility-induced distortions in DWI data.
 """
 
+import json
 from pathlib import Path
 
 import numpy as np
 
 from dwi_preprocessing.config import Config
 from dwi_preprocessing.utils.shell import run
+
+
+# BIDS PhaseEncodingDirection axis → unit vector
+_PE_AXIS = {"i": (1, 0, 0), "j": (0, 1, 0), "k": (0, 0, 1)}
+
+
+def prepare_acqparams(dwi_json: Path, output_dir: Path) -> Path:
+    """Write acqparams.txt from a DWI JSON sidecar.
+
+    Reads PhaseEncodingDirection (e.g. "j-") and TotalReadoutTime, and
+    writes two rows: the DWI phase-encode vector and its negation (the
+    reversed phase-encode direction used for topup), each followed by the
+    readout time. Mirrors the MATLAB prepareAcqParams helper.
+
+    Parameters
+    ----------
+    dwi_json : Path
+        DWI .json sidecar.
+    output_dir : Path
+        Directory to write acqparams.txt into.
+
+    Returns
+    -------
+    Path to acqparams.txt
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    acqparams = output_dir / "acqparams.txt"
+
+    with open(dwi_json) as f:
+        meta = json.load(f)
+
+    pe = meta.get("PhaseEncodingDirection") or meta.get("PhaseEncodingAxis")
+    if pe is None:
+        raise ValueError(f"No PhaseEncodingDirection in {dwi_json}")
+    readout = meta.get("TotalReadoutTime") or meta.get("EstimatedTotalReadoutTime")
+    if readout is None:
+        raise ValueError(f"No TotalReadoutTime in {dwi_json}")
+
+    vec = _pe_to_vector(pe)
+    vec_neg = tuple(-v for v in vec)
+
+    with open(acqparams, "w") as f:
+        f.write(f"{vec[0]} {vec[1]} {vec[2]} {readout}\n")
+        f.write(f"{vec_neg[0]} {vec_neg[1]} {vec_neg[2]} {readout}\n")
+
+    return acqparams
+
+
+def _pe_to_vector(pe: str) -> tuple[int, int, int]:
+    """Convert a BIDS phase-encode string (e.g. 'j-') to a unit vector."""
+    axis = pe[0]
+    sign = -1 if pe.endswith("-") else 1
+    base = _PE_AXIS[axis]
+    return tuple(sign * x for x in base)
 
 
 def topup_eddy(
