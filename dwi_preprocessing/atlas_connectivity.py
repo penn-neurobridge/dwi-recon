@@ -157,7 +157,10 @@ def atlas_connectivity(
     for f in fib_dir.glob("*.txt"):
         f.unlink()
     for f in fib_dir.glob("*connectivity*"):
-        shutil.move(str(f), str(raw_dir))
+        dest = raw_dir / f.name
+        if dest.exists():
+            dest.unlink()  # idempotent: overwrite leftovers from a prior run
+        shutil.move(str(f), str(dest))
 
     # Parse and build connectivity matrices
     connectivity = _parse_dsi_studio_output(raw_dir, lut)
