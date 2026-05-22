@@ -1,4 +1,4 @@
-# DWI Minimum Preprocessing Pipeline
+# DWI Processing and iEEG Reconstruction Pipeline
 
 A Python pipeline for diffusion-weighted imaging (DWI) preprocessing, whole-brain fiber tracking, and structural connectivity analysis with specialized support for intracranial EEG (iEEG) electrode-level connectivity.
 
