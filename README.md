@@ -4,7 +4,7 @@ A Python pipeline for diffusion-weighted imaging (DWI) preprocessing, whole-brai
 
 ## Overview
 
-This pipeline takes raw DWI data through eddy/distortion correction, GQI reconstruction, whole-brain tractography, and connectivity analysis at both atlas and electrode levels. It wraps **FSL**, **FreeSurfer**, and **DSI Studio** command-line tools in a reproducible Python workflow.
+This pipeline takes raw DWI data through eddy/distortion correction, GQI reconstruction, whole-brain tractography, and connectivity analysis at both atlas and electrode levels. It wraps **FSL** and **FreeSurfer** command-line tools and the **Dockerized DSI Studio** (pinned version) in a reproducible Python workflow. Each subject is its own dataset (`primary/` raw BIDS + `derivatives/` outputs).
 
 See [PIPELINE.md](PIPELINE.md) for detailed flowcharts of each processing stage.
 
@@ -12,10 +12,12 @@ See [PIPELINE.md](PIPELINE.md) for detailed flowcharts of each processing stage.
 
 - Eddy current and susceptibility distortion correction (FSL topup + eddy)
 - EPI-to-T1 boundary-based registration (FSL epi_reg)
-- GQI reconstruction and whole-brain fiber tracking (DSI Studio)
+- GQI reconstruction and whole-brain fiber tracking via **Dockerized DSI Studio** (pinned, platform-independent)
 - Iterative tractography with per-streamline diffusion metrics (QA, FA, MD, AD, RD)
 - Atlas-based structural connectivity (Desikan-Killiany, Lausanne 2018 scales 1-5)
 - iEEG electrode-level structural connectivity with grey-to-white matter projection
+- HDF5 (`.h5`) outputs throughout
+- Multiprocess (loky) parallelism for the per-tract iEEG edge search (MATLAB `parpool` equivalent)
 
 ## Installation
 
@@ -216,18 +218,19 @@ dwi_minimum_preprocessing/
   run_dwi_preprocessing.py      # CLI: dwi-preprocess (all subjects)
   run_ieeg_connectivity.py      # CLI: dwi-ieeg-connectivity (electrode subjects)
   dwi_preprocessing/            # Python package (primary)
-    __init__.py                 # Exports: DWIPipeline, IEEGPipeline, Config
-    config.py                   # Configuration loader (setup_environment.json)
-    pipeline.py                 # DWIPipeline: tracking, alignment, atlas
+    __init__.py                 # Exports: DWIPipeline, IEEGPipeline, run_*, Config
+    config.py                   # Config loader; pinned DSI Studio Docker image
+    pipeline.py                 # DWIPipeline: eddy→register→reconstruct→tracking→alignment→atlas; SubjectPaths
     ieeg_pipeline.py            # IEEGPipeline: electrode-level connectivity
-    eddy.py                     # Eddy current / distortion correction (FSL)
+    eddy.py                     # Eddy/distortion correction + acqparams (FSL)
     registration.py             # EPI-to-T1 BBR registration (FSL epi_reg)
-    reconstruction.py           # NIFTI → SRC → GQI (DSI Studio)
+    reconstruction.py           # NIFTI → SRC(.sz) → GQI(.gqi.fz) (DSI Studio)
     tracking.py                 # Fiber tracking: single + iterative (DSI Studio)
-    alignment.py                # Tract-to-T1 surface RAS alignment
+    alignment.py                # Tract-to-T1 surface RAS alignment + plotly QC
     atlas_connectivity.py       # Atlas-based structural connectivity
-    ieeg_connectivity.py        # iEEG electrode-level connectivity
+    ieeg_connectivity.py        # iEEG connectivity (multiprocess edge search)
     utils/
+      dsi.py                    # DSI Studio runner (Docker or local binary)
       shell.py                  # Subprocess helper (list-style commands)
       io.py                     # HDF5 I/O + legacy .mat loading
       surfaces.py               # FreeSurfer surface + coordinate utilities

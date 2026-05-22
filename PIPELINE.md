@@ -1,6 +1,27 @@
 # Pipeline Documentation
 
-This document describes the full DWI preprocessing and connectivity pipeline, from raw inputs through to electrode-level structural connectivity matrices.
+This document describes the full DWI preprocessing and connectivity pipeline,
+from raw inputs through to electrode-level structural connectivity matrices.
+
+Each subject is a **self-contained dataset** (Penn-Neurobridge layout):
+
+```
+<dataset>/                       e.g. PennEPI000
+  primary/sub-<ID>/ses-preimplant/{anat,dwi,fmap}    raw BIDS inputs
+  derivatives/{freesurfer,preprocessDWI,connectivityDWI,connectivityIEEG,ieeg_recon}
+```
+
+Derivatives sit **directly** under `derivatives/` (no per-subject nesting).
+Tools: **FSL** and **FreeSurfer** run locally; **DSI Studio** runs from a
+pinned Docker image (`dsistudio/dsistudio:hou-2026-05-17`). All pipeline
+outputs are **HDF5** (`.h5`).
+
+The pipeline is split into two independent entry points:
+
+| Command | Stages | Runs on |
+|---|---|---|
+| `dwi-preprocess -i <dataset>` | eddy → register → reconstruct → tracking → alignment → atlas | every subject |
+| `dwi-ieeg-connectivity -i <dataset>` | grey→white → edge list → connectivity | electrode subjects only |
 
 ## High-Level Overview
 
@@ -11,36 +32,39 @@ This document describes the full DWI preprocessing and connectivity pipeline, fr
   RAW INPUTS                    PROCESSING                         OUTPUTS
   ----------                    ----------                         -------
 
-  DWI (AP)  ──┐
-  DWI (PA)  ──┤                ┌─────────────┐
-  bval/bvec ──┼──────────────> │  1. TOPUP +  │
-  fieldmaps ──┘                │     EDDY     │
+  DWI         ──┐
+  fmap (rev PE) ┤              ┌─────────────┐
+  bval/bvec ────┼────────────> │  1. TOPUP +  │
+  dwi.json ─────┘              │     EDDY     │ (FSL)
                                └──────┬───────┘
                                       │
   T1 (FreeSurfer) ──┐                │
                      │         ┌──────▼───────┐
-                     ├───────> │ 2. EPI-to-T1 │
+                     ├───────> │ 2. EPI-to-T1 │ (FSL epi_reg)
                      │         │ Registration │
                      │         └──────┬───────┘
                      │                │
-                     │         ┌──────▼───────┐     whole_brain_trk.mat
-                     │         │ 3. GQI Recon │     whole_brain_trksubVox.mat
+                     │         ┌──────▼───────┐     whole_brain_trk.h5
+                     │         │ 3. GQI Recon │     whole_brain_trksubVox.h5
                      │         │  + Tracking  ├──>  (2.5M streamlines,
-                     │         └──────┬───────┘      per-point QA/FA/MD/AD/RD)
+                     │         │ (DSI Studio) │      per-point QA/FA/MD/AD/RD)
+                     │         └──────┬───────┘
                      │                │
                      │         ┌──────▼───────┐     trk_to_t1surfRAS.txt
-                     ├───────> │ 4. Tract-T1  ├──>  (4x4 transform matrix)
+                     ├───────> │ 4. Tract-T1  ├──>  check_alignment.{html,png}
                      │         │  Alignment   │
                      │         └──────┬───────┘
                      │                │
-  Atlas parcels ─────┤         ┌──────▼───────┐     connectivity.mat
-                     ├───────> │ 5. Atlas     ├──>  (NxN: count, FA, MD,
-                     │         │ Connectivity │      AD, RD, QA, length)
+  Atlas parcels ─────┤         ┌──────▼───────┐     <atlas>/connectivity.h5
+                     ├───────> │ 5. Atlas     ├──>  (NxN: count, fa, md,
+                     │         │ Connectivity │      ad, rd, qa, length)
                      │         └──────────────┘
-                     │                │
-  Electrode coords ──┤         ┌──────▼───────┐     edgeList_{d}mmSph.csv
-  (electrodes2ROI)   ├───────> │ 6. iEEG      ├──>  connectivity_{d}mmSph.mat
-                     │         │ Connectivity │      (NxN per metric)
+                     │
+  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│─ ─ ─ separate pipeline (electrode subjects) ─ ─ ─ ─ ─
+                     │
+  electrodes2ROI.csv─┤         ┌──────────────┐     connectivityIEEG/
+  (ieeg_recon mod 3) ├───────> │ 6. iEEG      ├──>  connectivity.h5
+                     │         │ Connectivity │      (ieeg-sc-{3,5}mmSph/...)
                      │         └──────────────┘
 ```
 
@@ -48,326 +72,256 @@ This document describes the full DWI preprocessing and connectivity pipeline, fr
 
 ## Stage 1: Distortion & Eddy Current Correction
 
-**Class:** `PreprocessDWI.topup_eddy()`
-**Tools:** FSL (`fslroi`, `fslmerge`, `topup`, `bet`, `eddy_openmp`)
+**Module:** `eddy.py` — `prepare_acqparams()`, `topup_eddy()`
+**Tools:** FSL (`fslroi`, `fslmerge`, `topup`, `bet`, auto-detected eddy binary:
+`eddy_cpu` / `eddy_openmp` / `eddy`)
 
 ```
-  DWI (AP direction)
-  DWI (PA direction)                    ┌──────────────────┐
-  Acquisition params   ──────────────>  │  FSL TOPUP        │
-  b02b0 config                          │  Estimate field   │
-                                        └────────┬─────────┘
-                                                 │
+  DWI                                   ┌──────────────────┐
+  fmap (reversed PE b0) ─────────────>  │  FSL TOPUP        │
+  acqparams.txt (from dwi.json PE +     │  Estimate field   │
+                 TotalReadoutTime)      └────────┬─────────┘
+  b02b0_1.cnf                                    │
                                         ┌────────▼─────────┐
   DWI (full volume)                     │  FSL EDDY         │
-  bval / bvec          ──────────────>  │  Correct motion,  │
-  Brain mask (from BET)                 │  eddy currents,   │
-                                        │  susceptibility   │
+  bval / bvec          ──────────────>  │  motion + eddy +  │
+  Brain mask (from BET on hifi b0)      │  susceptibility   │
                                         └────────┬─────────┘
-                                                 │
                                                  ▼
                                         dwi_eddy.nii.gz
                                         dwi_eddy.eddy_rotated_bvecs
 ```
 
-**Input files:**
-- `dwi.nii.gz` — Raw DWI volume (AP phase encoding)
-- `dwi_PA.nii.gz` — Reversed phase-encode b0 volume
-- `dwi.bval`, `dwi.bvec` — b-values and gradient directions
-- `acqparams.txt` — Acquisition parameters for topup
+`acqparams.txt` is generated from the DWI JSON `PhaseEncodingDirection`
+(e.g. `j-` → `0 -1 0`) and `TotalReadoutTime`; the reversed row is the
+negated vector.
 
-**Output files:**
-- `preprocessDWI/topupEddy/dwi_eddy.nii.gz` — Corrected DWI volume
-- `preprocessDWI/topupEddy/dwi_eddy.eddy_rotated_bvecs` — Rotated gradient directions
+**Inputs:** `ses-preimplant/dwi/*_dwi.{nii.gz,bval,bvec,json}`,
+`ses-preimplant/fmap/*dir-AP_epi.nii.gz`
+**Outputs:** `preprocessDWI/topupEddy/dwi_eddy.nii.gz`,
+`dwi_eddy.eddy_rotated_bvecs`
 
 ---
 
 ## Stage 2: EPI-to-T1 Registration
 
-**Class:** `PreprocessDWI.register_epi2t1()`
+**Module:** `registration.py` — `register_epi2t1()`
 **Tools:** FSL (`fslroi`, `bet`, `fslmaths`, `epi_reg`), FreeSurfer (`mri_convert`)
 
 ```
-  dwi_eddy.nii.gz ──> fslroi ──> b0 ──> bet ──> b0_brain
+  dwi_eddy.nii.gz ──> fslroi ──> b0 ──> bet ──> b0_brain (+ mask)
                                                     │
-  FreeSurfer T1.mgz ──> mri_convert ──> T1.nii.gz  │
-  FreeSurfer wm.mgz ──> mri_convert ──> wm.nii.gz  │
-  FreeSurfer brain.mgz ──> mri_convert ──> brain    │
+  FreeSurfer T1/wm/brain.mgz ──> mri_convert ──> .nii.gz
                                                     │
                                           ┌─────────▼──────────┐
                                           │  FSL epi_reg (BBR)  │
-                                          │  Boundary-Based     │
-                                          │  Registration       │
                                           └─────────┬──────────┘
-                                                    │
                                                     ▼
                                           dwi_to_t1.txt (4x4 affine)
+                                          dwi_eddy.b0.gz.brain_mask.nii.gz
 ```
 
-**Input files:**
-- Eddy-corrected DWI from Stage 1
-- FreeSurfer `recon-all` outputs (T1.mgz, wm.mgz, brain.mgz)
-
-**Output files:**
-- `connectivityDWI/bbr2freesurferT1/dwi_to_t1.txt` — 4x4 affine registration matrix
+**Outputs:** `connectivityDWI/bbr2freesurferT1/dwi_to_t1.txt`,
+`dwi_eddy.b0.gz.brain_mask.nii.gz`
 
 ---
 
 ## Stage 3: GQI Reconstruction & Fiber Tracking
 
-**Class:** `PreprocessDWI.nifti2src()`, `PreprocessDWI.src2gqi()`, `PreprocessDWI.fiber_tracking_ittr()`
-**Tools:** DSI Studio
+**Modules:** `reconstruction.py` (`nifti2src`, `src2gqi`),
+`tracking.py` (`fiber_tracking_ittr`)
+**Tool:** DSI Studio (Docker)
 
 ```
   dwi_eddy.nii.gz  ──> dsi_studio --action=src ──> dwi_eddy.sz
-  bval, bvec                                             │
+  bval, rotated bvec                                     │
                                                          │
-  Brain mask        ──> dsi_studio --action=rec ──> *.gqi.fz
-                        (GQI, param=1.25)                │
+  Brain mask        ──> dsi_studio --action=rec ──> dwi_eddy.gqi.fz
+                        --param=1.25                     │  + scalar maps
+                        --other_output=fa,ad,rd,md,qa    │  (.fa/.ad/.rd/.md/.qa.nii.gz)
                                                          │
                     ┌────────────────────────────────────┘
-                    │
                     ▼
-             ┌──────────────┐
-             │  10 Tracking  │   Each iteration: 250K streamlines
-             │  Iterations   │   --export=qa.mat,dti_fa.mat,md.mat,ad.mat,rd.mat
-             │               │   min_length=30, max_length=300, step_size=1
+             ┌──────────────┐   Each iteration: --tract_count=250000
+             │  10 Tracking  │   --export=qa.mat,fa.mat,md.mat,ad.mat,rd.mat
+             │  Iterations   │   min_length=30, max_length=300, step_size=1
              └───────┬───────┘
-                     │
-                     ▼  Concatenate all iterations
-             ┌───────────────────┐
-             │ whole_brain_trk   │   cord:     (4 x N_points) homogeneous coordinates
-             │ .mat              │   length:   (N_tracts,) streamline lengths
-             │                   │   startEnd: (N_tracts, 2) start/end indices
-             │                   │   qaTrk:    (N_tracts,) mean QA per tract
-             │                   │   faTrk:    (N_tracts,) mean FA per tract
-             │                   │   mdTrk, adTrk, rdTrk: same for MD, AD, RD
-             └───────────────────┘
-             ┌───────────────────┐
-             │ whole_brain       │   qa: (N_points,) per-point QA
-             │ _trksubVox.mat   │   fa: (N_points,) per-point FA
-             │                   │   md, ad, rd: same
-             └───────────────────┘
+                     │  concatenate iterations, then save HDF5
+                     ▼
+             ┌──────────────────────────────────────────────┐
+             │ whole_brain_trk.h5   group "trk":              │
+             │   cord       (4 x N_points) homogeneous coords │
+             │   length     (N_tracts,)                       │
+             │   start_idx  (N_tracts,)  end_idx (N_tracts,)  │
+             │   qa fa md ad rd  (N_tracts,) per-tract means  │
+             ├──────────────────────────────────────────────┤
+             │ whole_brain_trksubVox.h5   group "trksubVox":  │
+             │   qa fa md ad rd  (N_points,) per-point values │
+             └──────────────────────────────────────────────┘
 ```
 
-**Parameters:**
-- 2,500,000 total streamlines (10 iterations x 250,000)
-- GQI reconstruction with diffusion sampling length ratio = 1.25
-- Tracking: method=1 (streamline), trim=1, random_seed=1, thread_count=16
+**Notes (DSI Studio "Hou" formats/CLI):**
+- SRC = `.sz`, FIB = `.gqi.fz`, tracts = `.tt.gz`
+- `--param` (not `--param0`); `--tract_count` (not `--fiber_count`)
+- DTI metrics must be requested at rec via `--other_output`; `exp`/`trk`
+  export them as `fa/ad/rd/md/qa` (the `ana` step uses `dti_fa`)
+- 2,500,000 total streamlines (10 × 250,000); GQI sampling length = 1.25
 
-**Output files:**
-- `preprocessDWI/dsiStudio/whole_brain_trk.mat` — Tract coordinates + per-tract mean metrics
-- `preprocessDWI/dsiStudio/whole_brain_trksubVox.mat` — Per-point metrics along each streamline
+**Outputs:** `preprocessDWI/dsiStudio/whole_brain_trk.h5`,
+`whole_brain_trksubVox.h5` (plus `dwi_eddy.sz`, `dwi_eddy.gqi.fz`, scalar maps)
 
 ---
 
 ## Stage 4: Tract-to-T1 Alignment
 
-**Class:** `PreprocessDWI.align_tracts_to_t1()`
+**Module:** `alignment.py` — `align_tracts_to_t1()`
 
-Computes a 4x4 transformation matrix that maps DSI Studio tract coordinates into FreeSurfer T1 surface RAS space.
+Computes the 4×4 transform mapping DSI Studio tract coordinates into
+FreeSurfer T1 surface-RAS space.
 
 ```
-  DSI Studio tracts (voxel space)
-         │
-         ▼
   ┌──────────────────────────────────────────────────────┐
-  │  T_AP        Flip anterior-posterior axis             │
-  │  sizeMat     Scale by DWI voxel dimensions           │
-  │  dwi_to_t1   EPI-to-T1 registration (from Stage 2)  │
-  │  sizeMatT1   Scale by T1 voxel dimensions (inverse)  │
+  │  T_AP        flip anterior-posterior axis             │
+  │  sizeMat     scale by DWI voxel dimensions            │
+  │  dwi_to_t1   EPI-to-T1 registration (Stage 2)         │
+  │  sizeMatT1   scale by T1 voxel dimensions (inverse)   │
   │  t1surfRAS   FreeSurfer tkRAS transform               │
   │                                                       │
-  │  trk_to_t1surfRAS = t1surfRAS x sizeMatT1 x          │
-  │                      dwi_to_t1 x sizeMat x T_AP       │
+  │  trk_to_t1surfRAS = t1surfRAS · sizeMatT1 ·           │
+  │                     dwi_to_t1 · sizeMat · T_AP        │
   └──────────────────────────────────────────────────────┘
-         │
-         ▼
-  Tracts in T1 surface RAS coordinates
-  (aligned with FreeSurfer pial/white surfaces)
 ```
 
-**Output files:**
-- `connectivityDWI/tracts_to_T1/trk_to_t1surfRAS.txt` — 4x4 tract-to-surface-RAS transform
-- `connectivityDWI/tracts_to_T1/trk_to_t1Vox.txt` — 4x4 tract-to-T1-voxel transform
-- `connectivityDWI/tracts_to_T1/check_alignment.png` — QC visualization
+A QC render (plotly, ieeg-recon style) overlays a subsample of the
+transformed tracts on the FreeSurfer pial surfaces.
+
+**Outputs:** `connectivityDWI/tracts_to_T1/trk_to_t1surfRAS.txt`,
+`trk_to_t1Vox.txt`, `check_alignment.html`, `check_alignment.png`
 
 ---
 
 ## Stage 5: Atlas-Based Connectivity
 
-**Class:** `PreprocessDWI.get_roi_cord()`, `PreprocessDWI.atlas_connectivity()`
-**Tools:** DSI Studio (`--action=ana`)
+**Module:** `atlas_connectivity.py` — `get_roi_coords()`, `atlas_connectivity()`
+**Tool:** DSI Studio `--action=ana` (Docker)
 
 ```
-  Parcellation atlas    ──┐
-  (aparc+aseg, lausanne)  │
-                          │    ┌───────────────────────┐
-  Lookup table (.csv)   ──┼──> │  DSI Studio            │
-                          │    │  --action=ana           │
-  fib.gz + trk.gz      ──┤    │  --connectivity=atlas   │
-                          │    │  --connectivity_value=  │
-  T1.nii.gz             ──┘    │    dti_fa,md,ad,rd,     │
-                               │    count,mean_length,qa │
-                               └───────────┬────────────┘
-                                           │
-                                           ▼
-                               ┌────────────────────────┐
-                               │  connectivity.mat       │
-                               │    count:  (R x R)      │
-                               │    fa:     (R x R)      │
-                               │    md:     (R x R)      │
-                               │    ad:     (R x R)      │
-                               │    rd:     (R x R)      │
-                               │    qa:     (R x R)      │
-                               │    length: (R x R)      │
-                               └────────────────────────┘
+  Parcellation atlas (aparc+aseg, lausanne) ──┐
+  Lookup table (.csv)                       ──┼──> dsi_studio --action=ana
+  GQI fib (.gqi.fz) + tracts (.tt.gz)       ──┤    --connectivity=<atlas>
+  T1.nii.gz (--other_slices, registers       ─┘    --connectivity_value=
+            atlas→FIB space)                         dti_fa,md,ad,rd,count,
+                                                     mean_length,qa
+                          │
+                          ▼
+             one combined *.connectivity.mat  (keys "<metric> r2r" / "t2r")
+                          │  parse + reorder to lookup-table ROIs
+                          ▼
+             ┌────────────────────────────┐
+             │ <atlas>/connectivity.h5     │
+             │   count  (R x R)            │
+             │   fa md ad rd qa length     │
+             └────────────────────────────┘
 ```
 
-**Supported atlases:**
-| Atlas | Regions | File |
-|---|---|---|
-| Desikan-Killiany | 68 cortical | `desikanKilliany.csv` |
-| Lausanne 2018 Scale 1 | ~100 | `lausanne2018scale1.csv` |
-| Lausanne 2018 Scale 2 | ~250 | `lausanne2018scale2.csv` |
-| Lausanne 2018 Scale 3 | ~500 | `lausanne2018scale3.csv` |
-| Lausanne 2018 Scale 4 | ~1000 | `lausanne2018scale4.csv` |
-| Lausanne 2018 Scale 5 | ~2000 | `lausanne2018scale5.csv` |
+**Supported atlases:** Desikan-Killiany (`aparc+aseg`) and Lausanne 2018
+scales 1–5 (each Lausanne scale runs only if its NIfTI exists in
+`freesurfer/mri/`).
 
-**Output files:**
-- `connectivityDWI/<atlas>/connectivity.mat` — Symmetric RxR matrices per metric
+**Outputs:** `connectivityDWI/<atlas>/connectivity.h5` — symmetric R×R
+matrices for `count, fa, md, ad, rd, qa, length`.
 
 ---
 
 ## Stage 6: iEEG Electrode-Level Connectivity
 
-**Class:** `IEEGsc`
+**Module:** `ieeg_connectivity.py` — `ieeg_grey2white()`, `make_edge_list()`,
+`make_connectivity_matrix()` (separate `dwi-ieeg-connectivity` pipeline)
 
-This is the main use case for the pipeline: computing structural connectivity between intracranial EEG electrode contacts.
+Requires Stage 3 + 4 outputs and `derivatives/ieeg_recon/module3/electrodes2ROI.csv`.
 
 ### Step 6a: Grey-to-White Matter Projection
 
 ```
   electrodes2ROI.csv
-  (from ieeg_recon module 3)
          │
          ▼
-  ┌──────────────────────────────────────┐
-  │  For each cortical electrode:         │
-  │    1. Test if inside WM surface       │
-  │       (trimesh point-in-mesh)         │
-  │    2. If in grey matter:              │
-  │       - Find nearest pial vertex      │
-  │         (KDTree nearest-neighbor)     │
-  │       - Map to corresponding WM       │
-  │         vertex                        │
-  │    3. Update electrode coordinates    │
-  └──────────────────────┬───────────────┘
-                         │
-                         ▼
-              electrodes_surf_proj.csv
-              (all contacts on WM surface)
-```
-
-### Step 6b: Build Edge List
-
-```
-  whole_brain_trk.mat     ──┐
-  whole_brain_trksubVox.mat ┤
-  trk_to_t1surfRAS.txt   ──┤
-  electrodes (projected)  ──┘
+  For each cortical electrode (roiNum > 999):
+    1. test if inside the WM surface (trimesh point-in-mesh; needs rtree)
+    2. if in grey matter: nearest pial vertex (KDTree) → corresponding WM vertex
+    3. update electrode coordinate
          │
          ▼
-  ┌────────────────────────────────────────────────────┐
-  │  For each tract (parallelized with joblib):         │
-  │    1. Transform tract to surface RAS                │
-  │    2. Build KDTree of tract points                  │
-  │    3. Query: which electrodes within sphere_dia?    │
-  │    4. For each pair of connected electrodes:        │
-  │       - Extract tract segment between them          │
-  │       - Compute mean QA, FA, MD, AD, RD of segment │
-  │       - Record: (roi1, roi2, length, metrics,       │
-  │                  tract_index)                        │
-  └────────────────────────────────┬───────────────────┘
-                                   │
-                                   ▼
-                     edgeList_{d}mmSph.csv
-                     (one row per electrode-pair-tract)
+  electrodes_surf_proj.csv   (all contacts on the WM surface)
+```
+
+### Step 6b: Build Edge List (parallel, parpool-equivalent)
+
+```
+  whole_brain_trk.h5 + trksubVox.h5 + trk_to_t1surfRAS.txt + electrodes
+         │
+         ▼
+  Tracts split into n_cpu*4 chunks, processed by separate worker
+  PROCESSES (joblib loky backend). Large arrays (cord, qa/fa/md/ad/rd)
+  are memory-mapped and shared read-only across workers.
+
+  For each tract:
+    1. KDTree of tract points; query electrodes within sphere_dia
+    2. for each connected electrode pair (sorted along the tract):
+         - segment between them; mean QA/FA/MD/AD/RD over the segment
+         - record (roi1, roi2, length, qa, fa, md, ad, rd, trkindx)
+         │
+         ▼
+  edgeList_{d}mmSph.csv   (one row per electrode-pair-tract)
 ```
 
 ### Step 6c: Aggregate Connectivity Matrices
 
 ```
   edgeList_{d}mmSph.csv
-         │
+         │  sum per electrode pair; mean metrics; symmetrize M = M + M'
          ▼
-  ┌──────────────────────────────────┐
-  │  For each electrode pair (i,j):   │
-  │    count[i,j] = number of tracts  │
-  │    fa[i,j]  = mean FA across all  │
-  │               connecting tracts   │
-  │    (same for QA, MD, AD, RD,      │
-  │     length)                       │
-  │                                   │
-  │  Symmetrize: M = M + M'          │
-  └──────────────────┬───────────────┘
-                     │
-                     ▼
-         connectivity_{d}mmSph.mat
-         ┌─────────────────────────┐
-         │  count: (E x E)         │
-         │  fa:    (E x E)         │
-         │  qa:    (E x E)         │
-         │  md:    (E x E)         │
-         │  ad:    (E x E)         │
-         │  rd:    (E x E)         │
-         │  len:   (E x E)         │
-         │                         │
-         │  E = number of          │
-         │      electrodes         │
-         └─────────────────────────┘
+  connectivity.h5   (per-subject; one group per sphere diameter)
+    ieeg/                coordinate (3 x E), labels (1 x E)
+    ieeg-atlas-dkt/      roi (1 x E), roi_fsnum (1 x E)
+    ieeg-sc-3mmSph/      ad count fa length md qa rd   (each E x E)
+    ieeg-sc-5mmSph/      ad count fa length md qa rd   (each E x E)
 ```
 
-**Sphere diameters:** By default, connectivity is computed for 3mm and 5mm spheres around each electrode. Larger spheres capture more tracts but may reduce spatial specificity.
+**Sphere diameters:** default 3mm and 5mm. Larger spheres capture more
+tracts but reduce spatial specificity.
 
 ---
 
 ## Complete File Flow
 
 ```
-RAW DATA
-  dwi.nii.gz + bval/bvec + fieldmaps + T1 (FreeSurfer recon-all)
-  electrodes2ROI.csv (from ieeg_recon)
+RAW DATA  (primary/sub-<ID>/ses-preimplant)
+  dwi.nii.gz + bval/bvec + dwi.json + fmap (reversed PE)
+  anat/T1w  (also FreeSurfer recon-all under derivatives/freesurfer)
+  derivatives/ieeg_recon/module3/electrodes2ROI.csv   (iEEG subjects)
 
          │
   ┌──────▼──────────────────────────────────────────────────────────────┐
-  │  preprocessDWI/topupEddy/                                           │
-  │    dwi_eddy.nii.gz                   Corrected DWI volume          │
-  │    dwi_eddy.eddy_rotated_bvecs       Rotated gradients             │
+  │  derivatives/preprocessDWI/topupEddy/                               │
+  │    dwi_eddy.nii.gz                   corrected DWI                  │
+  │    dwi_eddy.eddy_rotated_bvecs       rotated gradients             │
   ├─────────────────────────────────────────────────────────────────────┤
-  │  preprocessDWI/dsiStudio/                                           │
-  │    dwi_eddy.sz                       DSI Studio source file        │
-  │    *.gqi.fz                          GQI reconstruction            │
-  │    whole_brain_trk.mat               Tract coordinates + metrics   │
-  │    whole_brain_trksubVox.mat         Per-point diffusion metrics    │
+  │  derivatives/preprocessDWI/dsiStudio/                               │
+  │    dwi_eddy.sz                       DSI Studio source             │
+  │    dwi_eddy.gqi.fz (+ scalar maps)   GQI reconstruction            │
+  │    whole_brain_trk.h5                tract coords + per-tract means │
+  │    whole_brain_trksubVox.h5          per-point diffusion metrics    │
   ├─────────────────────────────────────────────────────────────────────┤
-  │  connectivityDWI/bbr2freesurferT1/                                  │
-  │    dwi_to_t1.txt                     DWI-to-T1 registration        │
+  │  derivatives/connectivityDWI/bbr2freesurferT1/dwi_to_t1.txt         │
+  │  derivatives/connectivityDWI/tracts_to_T1/                          │
+  │    trk_to_t1surfRAS.txt, trk_to_t1Vox.txt, check_alignment.{html,png}│
+  │  derivatives/connectivityDWI/<atlas>/connectivity.h5                │
   ├─────────────────────────────────────────────────────────────────────┤
-  │  connectivityDWI/tracts_to_T1/                                      │
-  │    trk_to_t1surfRAS.txt              Tract-to-surface transform    │
-  │    trk_to_t1Vox.txt                  Tract-to-T1-voxel transform   │
-  │    check_alignment.png               QC overlay                    │
-  ├─────────────────────────────────────────────────────────────────────┤
-  │  connectivityDWI/desikanKilliany/                                   │
-  │    connectivity.mat                  68-region atlas connectivity   │
-  ├─────────────────────────────────────────────────────────────────────┤
-  │  connectivityIEEG/                                                  │
-  │    electrodes_surf_proj.csv          GM-to-WM projected electrodes │
-  │    edgeList_3mmSph.csv               Edge list (3mm sphere)        │
-  │    edgeList_5mmSph.csv               Edge list (5mm sphere)        │
-  │    connectivity_3mmSph.mat           Connectivity matrix (3mm)     │
-  │    connectivity_5mmSph.mat           Connectivity matrix (5mm)     │
+  │  derivatives/connectivityIEEG/        (iEEG subjects)               │
+  │    electrodes_surf_proj.csv           GM→WM projected electrodes    │
+  │    edgeList_{3,5}mmSph.csv            per-tract edges               │
+  │    connectivity.h5                    ieeg-sc-{3,5}mmSph matrices   │
   └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -384,5 +338,5 @@ RAW DATA
 | **RD** | Radial Diffusivity | Diffusion rate perpendicular to the primary fiber direction |
 
 These metrics are computed at two levels:
-1. **Per-tract mean** (`whole_brain_trk.mat`) — average across all points in each streamline
-2. **Per-point** (`whole_brain_trksubVox.mat`) — value at each point along each streamline, used for computing segment-level metrics between electrode pairs
+1. **Per-tract mean** (`whole_brain_trk.h5`) — average across all points in each streamline
+2. **Per-point** (`whole_brain_trksubVox.h5`) — value at each point along each streamline, used for segment-level metrics between electrode pairs
