@@ -132,35 +132,41 @@ def make_edge_list(
     xform = np.loadtxt(str(surfras_txt))
     cord = xform @ cord
 
-    # Load per-point metrics
+    # Load per-point metrics (as separate contiguous arrays so joblib can
+    # memory-map and share them read-only across worker processes)
     print("  Loading whole_brain_trksubVox.h5...")
     sv = load_h5(subvox_h5, group="trksubVox")
-    subvox = {m: sv[m].ravel() for m in ("qa", "fa", "md", "ad", "rd")}
+    qa = np.ascontiguousarray(sv["qa"].ravel())
+    fa = np.ascontiguousarray(sv["fa"].ravel())
+    md = np.ascontiguousarray(sv["md"].ravel())
+    ad = np.ascontiguousarray(sv["ad"].ravel())
+    rd = np.ascontiguousarray(sv["rd"].ravel())
 
-    # Process tracts in bins (parallelized)
     n_tracts = len(length)
-    n_bins = 1000
-    bin_edges = np.linspace(0, n_tracts, n_bins + 1, dtype=int)
-    cord_xyz = cord[:3, :]
+    cord_xyz = np.ascontiguousarray(cord[:3, :])
+    starts = np.ascontiguousarray(starts)
+    ends = np.ascontiguousarray(ends)
 
-    print(f"  Building edge list ({sphere_dia}mm) over {n_tracts} tracts...")
-    all_edges = []
+    # True multiprocess parallelism (like MATLAB parpool): the default loky
+    # backend runs separate processes, and joblib auto-memmaps the large
+    # arrays (cord_xyz, qa/fa/md/ad/rd) so they are shared, not re-pickled.
+    # Tracts are split into a few chunks per CPU for load balancing.
+    n_jobs = -1
+    n_cpu = os.cpu_count() or 4
+    n_chunks = min(n_tracts, n_cpu * 4)
+    chunks = [c for c in np.array_split(np.arange(n_tracts), n_chunks) if len(c)]
 
-    for b in range(n_bins):
-        b_start, b_end = bin_edges[b], bin_edges[b + 1]
-        if b_start >= b_end:
-            continue
+    print(f"  Building edge list ({sphere_dia}mm) over {n_tracts} tracts "
+          f"on {n_cpu} CPUs ({len(chunks)} chunks)...")
 
-        bin_results = Parallel(n_jobs=-1, prefer="threads")(
-            delayed(_process_tract)(
-                t, cord_xyz, starts, ends, subvox, ieeg_projected, sphere_dia
-            )
-            for t in range(b_start, b_end)
+    chunk_results = Parallel(n_jobs=n_jobs)(
+        delayed(_process_tract_chunk)(
+            chunk, cord_xyz, starts, ends, qa, fa, md, ad, rd,
+            ieeg_projected, sphere_dia,
         )
-
-        for res in bin_results:
-            if res is not None:
-                all_edges.append(res)
+        for chunk in chunks
+    )
+    all_edges = [res for chunk in chunk_results for res in chunk]
 
     if all_edges:
         edge_arr = np.vstack(all_edges)
@@ -259,7 +265,7 @@ def make_connectivity_matrix(
     # Electrode info group
     h5_data["ieeg"] = {
         "coordinate": electrodes[["surfmm_x", "surfmm_y", "surfmm_z"]].values.T,
-        "labels": np.array(electrodes["name"].tolist(), dtype=object).reshape(1, -1),
+        "labels": np.array(electrodes["labels"].tolist(), dtype=object).reshape(1, -1),
     }
 
     # Atlas info group
@@ -324,12 +330,46 @@ def _project_to_wm(
     return wm_xyz
 
 
+def _process_tract_chunk(
+    t_indices: np.ndarray,
+    cord_xyz: np.ndarray,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    qa: np.ndarray,
+    fa: np.ndarray,
+    md: np.ndarray,
+    ad: np.ndarray,
+    rd: np.ndarray,
+    ieeg_projected: np.ndarray,
+    sphere_dia: float,
+) -> list[np.ndarray]:
+    """Process a contiguous chunk of tracts in one worker process.
+
+    Looping inside the worker (rather than one joblib task per tract)
+    keeps per-task overhead low while the large arrays are memory-mapped
+    and shared across processes.
+    """
+    out = []
+    for t in t_indices:
+        res = _process_tract(
+            int(t), cord_xyz, starts, ends, qa, fa, md, ad, rd,
+            ieeg_projected, sphere_dia,
+        )
+        if res is not None:
+            out.append(res)
+    return out
+
+
 def _process_tract(
     t: int,
     cord_xyz: np.ndarray,
     starts: np.ndarray,
     ends: np.ndarray,
-    subvox: dict[str, np.ndarray],
+    qa: np.ndarray,
+    fa: np.ndarray,
+    md: np.ndarray,
+    ad: np.ndarray,
+    rd: np.ndarray,
     ieeg_projected: np.ndarray,
     sphere_dia: float,
 ) -> np.ndarray | None:
@@ -349,9 +389,9 @@ def _process_tract(
     elec_on_trk = []
     for elec_idx in connected:
         d_to_tract = np.linalg.norm(tract_pts - ieeg_projected[elec_idx], axis=1)
-        pos = np.argmin(d_to_tract)
+        pos = int(np.argmin(d_to_tract))
         if d_to_tract[pos] <= sphere_dia:
-            elec_on_trk.append((elec_idx, pos))
+            elec_on_trk.append((int(elec_idx), pos))
 
     if len(elec_on_trk) < 2:
         return None
@@ -361,10 +401,10 @@ def _process_tract(
     elec_indices = [x[0] for x in elec_on_trk]
     elec_positions = [x[1] for x in elec_on_trk]
 
-    # All pairs
+    # All electrode pairs along this tract
     results = []
-    for (i, ei), (j, ej) in combinations(range(len(elec_indices)), 2):
-        roi1 = elec_indices[i] + 1  # 1-indexed
+    for i, j in combinations(range(len(elec_indices)), 2):
+        roi1 = elec_indices[i] + 1  # 1-indexed (MATLAB-compatible)
         roi2 = elec_indices[j] + 1
         pos_start = elec_positions[i]
         pos_end = elec_positions[j]
@@ -373,11 +413,11 @@ def _process_tract(
         abs_end = s + pos_end + 1  # exclusive
 
         seg_len = pos_end - pos_start + 1
-        seg_qa = np.mean(subvox["qa"][abs_start:abs_end])
-        seg_fa = np.mean(subvox["fa"][abs_start:abs_end])
-        seg_md = np.mean(subvox["md"][abs_start:abs_end])
-        seg_ad = np.mean(subvox["ad"][abs_start:abs_end])
-        seg_rd = np.mean(subvox["rd"][abs_start:abs_end])
+        seg_qa = np.mean(qa[abs_start:abs_end])
+        seg_fa = np.mean(fa[abs_start:abs_end])
+        seg_md = np.mean(md[abs_start:abs_end])
+        seg_ad = np.mean(ad[abs_start:abs_end])
+        seg_rd = np.mean(rd[abs_start:abs_end])
 
         results.append([roi1, roi2, seg_len, seg_qa, seg_fa,
                         seg_md, seg_ad, seg_rd, t + 1])
