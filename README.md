@@ -19,24 +19,66 @@ See [PIPELINE.md](PIPELINE.md) for detailed flowcharts of each processing stage,
 - HDF5 (`.h5`) outputs throughout
 - Multiprocess (loky) parallelism for the per-tract iEEG edge search (MATLAB `parpool` equivalent)
 
-## Installation
+## Running with Docker (recommended — self-contained, AWS-ready)
+
+The easiest and most portable way to run the pipeline is the prebuilt
+Docker image. It bundles **everything** — FSL (eddy/topup/bet/flirt),
+DSI Studio, and the Python project — so there are no local installs and no
+docker-in-docker. FreeSurfer is **not** required at runtime (`.mgz` volumes
+are read with nibabel; you supply existing `recon-all` output as input).
+
+```bash
+# Build (amd64; on Apple Silicon add --platform linux/amd64)
+docker build -t dwi-recon .
+
+# Run the DWI pipeline on a dataset (mount the dataset at /data)
+docker run --rm -v /local/path/PennEPI000:/data dwi-recon dwi  -i /data
+
+# Run iEEG connectivity (electrode subjects)
+docker run --rm -v /local/path/PennEPI001:/data dwi-recon ieeg -i /data
+```
+
+The image's entrypoint is `run_dwi_recon.py` with two subcommands, `dwi`
+and `ieeg` (run `docker run --rm dwi-recon --help`). A dataset is a directory
+containing `primary/` and `derivatives/` (see [layout](#expected-directory-layout)).
+
+The image is **amd64-only** (DSI Studio ships x86_64) — it runs natively on
+AWS/x86 and under emulation on Apple Silicon.
+
+### On AWS
+
+Build/push to a registry (ECR or Docker Hub) and run on EC2, ECS, or AWS Batch:
+
+```bash
+docker build -t <account>.dkr.ecr.<region>.amazonaws.com/dwi-recon:latest .
+docker push <account>.dkr.ecr.<region>.amazonaws.com/dwi-recon:latest
+# On the instance / Batch job (mount the dataset, e.g. from EFS or an S3 sync):
+docker run --rm -v /mnt/data/PennEPI000:/data <image> dwi -i /data
+```
+
+For AWS Batch, point the job's command at `dwi -i /data` (or `ieeg -i /data`)
+and mount the dataset volume at `/data`. Each job processes one subject dataset.
+
+## Installation (local, without Docker)
 
 ### Prerequisites
 
 | Software | Version | Purpose |
 |---|---|---|
 | [FSL](https://fsl.fmrib.ox.ac.uk/fsl/) | 6.0+ | Eddy correction, registration, brain extraction |
-| [FreeSurfer](https://surfer.nmr.mgh.harvard.edu/) | 7.0+ (8.1.0 recommended) | Surface reconstruction, parcellation |
-| [Docker](https://www.docker.com/) | Latest | Runs DSI Studio (no local install needed) |
-| DSI Studio | `dsistudio/dsistudio:hou-2026-05-17` (pinned, auto-pulled) | GQI reconstruction, fiber tracking, connectivity |
+| [Docker](https://www.docker.com/) | Latest | Runs DSI Studio when not using the bundled image |
+| DSI Studio | `dsistudio/dsistudio:hou-2026-05-17` (pinned) or a local binary | GQI reconstruction, fiber tracking, connectivity |
 | Python | 3.13+ | Pipeline runtime |
 | [uv](https://docs.astral.sh/uv/) | Latest | Package manager |
 
-> **DSI Studio runs in Docker** — you do not need a local install. The pinned
-> image is `dsistudio/dsistudio:hou-2026-05-17` (set in `config.py`). On Apple
-> Silicon it runs under `linux/amd64` emulation automatically. To use a local
-> binary instead, set `"dsiStudioMode": "local"` and `"dsiStudio": "/path/to/dsi_studio"`
-> in `setup_environment.json`.
+> FreeSurfer is **not** required — `.mgz` volumes are read with nibabel. You
+> provide existing FreeSurfer `recon-all` output as a pipeline input.
+>
+> For local (non-Docker) runs, **DSI Studio runs via its own Docker image**
+> by default (pinned `dsistudio/dsistudio:hou-2026-05-17`, set in `config.py`;
+> auto `linux/amd64` on Apple Silicon). To use a local DSI Studio binary set
+> `"dsiStudioMode": "local"` and `"dsiStudio": "/path/to/dsi_studio"` in
+> `setup_environment.json`.
 
 ### Setup
 
@@ -214,8 +256,13 @@ All outputs use HDF5 format (`.h5`) for efficient storage and cross-language com
 ## Repository Structure
 
 ```
-dwi_minimum_preprocessing/
-  run_dwi_preprocessing.py      # CLI: dwi-preprocess (all subjects)
+dwi-recon/
+  Dockerfile                    # self-contained image (DSI Studio + FSL + project)
+  .dockerignore                 # build-context excludes
+  dev.env                       # INPUT_DIR / OUTPUT_DIR mount points
+  setup_environment.docker.json # container config (FSL @ /opt/conda, DSI local)
+  run_dwi_recon.py              # single entrypoint: subcommands `dwi`, `ieeg`
+  run_dwi_preprocessing.py      # CLI: dwi-preprocess (DWI pipeline)
   run_ieeg_connectivity.py      # CLI: dwi-ieeg-connectivity (electrode subjects)
   dwi_preprocessing/            # Python package (primary)
     __init__.py                 # Exports: DWIPipeline, IEEGPipeline, run_*, Config
@@ -232,7 +279,7 @@ dwi_minimum_preprocessing/
     utils/
       dsi.py                    # DSI Studio runner (Docker or local binary)
       shell.py                  # Subprocess helper (list-style commands)
-      io.py                     # HDF5 I/O + legacy .mat loading
+      io.py                     # HDF5 I/O, .mat loading, mgz→nii (nibabel)
       surfaces.py               # FreeSurfer surface + coordinate utilities
       geometry.py               # Point-in-mesh tests (trimesh)
   matlab/                       # Legacy MATLAB implementation
