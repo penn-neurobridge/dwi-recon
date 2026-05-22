@@ -17,10 +17,10 @@
 #   ... docker compose run --rm dwi --steps tracking,alignment --n-streamlines 1000000
 
 x-common: &common
+  image: nishantsinha89/dwi-recon:latest   # pulled from Docker Hub
   build:
-    context: .
-  image: dwi-recon:latest
-  platform: linux/amd64          # DSI Studio is x86_64
+    context: .                             # or `docker compose build` to build locally
+  platform: linux/amd64                    # DSI Studio is x86_64
   user: "${UID:-1000}:${GID:-1000}"
   volumes:
     - "${DATASET:?set DATASET=/path/to/dataset}:/data"

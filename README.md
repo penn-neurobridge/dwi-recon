@@ -22,25 +22,34 @@ See [PIPELINE.md](PIPELINE.md) for detailed flowcharts of each processing stage,
 ## Running with Docker (recommended — self-contained, AWS-ready)
 
 The easiest and most portable way to run the pipeline is the prebuilt
-Docker image. It bundles **everything** — FSL (eddy/topup/bet/flirt),
-DSI Studio, and the Python project — so there are no local installs and no
-docker-in-docker. FreeSurfer is **not** required at runtime (`.mgz` volumes
-are read with nibabel; you supply existing `recon-all` output as input).
+Docker image, published on Docker Hub as
+[`nishantsinha89/dwi-recon`](https://hub.docker.com/r/nishantsinha89/dwi-recon).
+It bundles **everything** — FSL (eddy/topup/bet/flirt), DSI Studio, and the
+Python project — so there are no local installs and no docker-in-docker.
+FreeSurfer is **not** required at runtime (`.mgz` volumes are read with
+nibabel; you supply existing `recon-all` output as input).
 
 ```bash
-# Build (amd64; on Apple Silicon add --platform linux/amd64)
-docker build -t dwi-recon .
+# Pull the prebuilt image (amd64)
+docker pull nishantsinha89/dwi-recon:latest
 
 # Run the DWI pipeline on a dataset (mount the dataset at /data)
-docker run --rm -v /local/path/PennEPI000:/data dwi-recon dwi  -i /data
+docker run --rm -v /local/path/PennEPI000:/data nishantsinha89/dwi-recon dwi  -i /data
 
 # Run iEEG connectivity (electrode subjects)
-docker run --rm -v /local/path/PennEPI001:/data dwi-recon ieeg -i /data
+docker run --rm -v /local/path/PennEPI001:/data nishantsinha89/dwi-recon ieeg -i /data
+```
+
+To build locally instead of pulling:
+
+```bash
+docker build -t dwi-recon .   # on Apple Silicon add --platform linux/amd64
 ```
 
 The image's entrypoint is `run_dwi_recon.py` with two subcommands, `dwi`
-and `ieeg` (run `docker run --rm dwi-recon --help`). A dataset is a directory
-containing `primary/` and `derivatives/` (see [layout](#expected-directory-layout)).
+and `ieeg` (run `docker run --rm nishantsinha89/dwi-recon --help`). A dataset
+is a directory containing `primary/` and `derivatives/`
+(see [layout](#expected-directory-layout)).
 
 The image is **amd64-only** (DSI Studio ships x86_64) — it runs natively on
 AWS/x86 and under emulation on Apple Silicon.
@@ -56,13 +65,17 @@ Notes:
 
 ### On AWS
 
-Build/push to a registry (ECR or Docker Hub) and run on EC2, ECS, or AWS Batch:
+Pull the published image directly, or mirror it to ECR. Run on EC2, ECS,
+or AWS Batch:
 
 ```bash
-docker build -t <account>.dkr.ecr.<region>.amazonaws.com/dwi-recon:latest .
+# Use the Docker Hub image directly:
+docker run --rm -v /mnt/data/PennEPI000:/data nishantsinha89/dwi-recon dwi -i /data
+
+# ...or mirror it to ECR:
+docker pull nishantsinha89/dwi-recon:latest
+docker tag  nishantsinha89/dwi-recon:latest <account>.dkr.ecr.<region>.amazonaws.com/dwi-recon:latest
 docker push <account>.dkr.ecr.<region>.amazonaws.com/dwi-recon:latest
-# On the instance / Batch job (mount the dataset, e.g. from EFS or an S3 sync):
-docker run --rm -v /mnt/data/PennEPI000:/data <image> dwi -i /data
 ```
 
 For AWS Batch, point the job's command at `dwi -i /data` (or `ieeg -i /data`)
