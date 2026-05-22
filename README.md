@@ -25,10 +25,10 @@ A MATLAB-based pipeline for preprocessing diffusion-weighted imaging (DWI) data,
 ### Atlas Support
 - Desikan-Killiany Atlas (`desikanKilliany.csv`): 68-region cortical parcellation
 - Lausanne 2018 Atlas (Scales 2-5): Multi-scale cortical parcellation
-  - `rh.lausanne2018.scale2.annot`: ~250 regions
-  - `rh.lausanne2018.scale3.annot`: ~500 regions
-  - `rh.lausanne2018.scale4.annot`: ~1000 regions
-  - `rh.lausanne2018.scale5.annot`: ~2000 regions
+  - `lausanne2018.scale2.annot`: ~250 regions
+  - `lausanne2018.scale3.annot`: ~500 regions
+  - `lausanne2018.scale4.annot`: ~1000 regions
+  - `lausanne2018.scale5.annot`: ~2000 regions
 
 ## Software Dependencies
 

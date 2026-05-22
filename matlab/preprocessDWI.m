@@ -47,8 +47,9 @@ classdef preprocessDWI
             path(path, fsldirmpath);
             clear fsldir fsldirmpath;
 
-            % Add dependencies
-            addpath(genpath(configData.DEPENDENCIES_PATH));
+            % Add dependencies (resolve relative to repo root)
+            repoRoot = fileparts(configFile);
+            addpath(genpath(fullfile(repoRoot, configData.DEPENDENCIES_PATH)));
 
             % Freesurfer setup
             setenv('FREESURFER_HOME', configData.FREESURFER_HOME);
@@ -747,126 +748,127 @@ classdef preprocessDWI
 
         % Check if the optional argument was provided
         if ~isempty(varargin)
-            save_trksubVox = varargin{1};
+            save_trksubVox = true;
         end
 
-        try
+        % Check what already exists
+        trk_exists = isfile([dwi_tt '_trk.mat']);
+        trksubVox_exists = isfile([dwi_tt '_trksubVox.mat']);
 
-            mustBeFile([dwi_tt '_trk.mat']);
+        need_tracking = ~trk_exists || (save_trksubVox && ~trksubVox_exists);
+
+        if ~need_tracking
+            disp('whole_brain_trk.mat and trksubVox.mat already exist — skipping');
             data_for_tracking.dwi_tt_trk = [dwi_tt '_trk.mat'];
-            
-            % Conditional behavior based on 'save_trksubVox'
             if save_trksubVox
-                disp('trksubVox is saved');
-                mustBeFile([dwi_tt '_trksubVox.mat']);
                 data_for_tracking.dwi_tt_trksubVox = [dwi_tt '_trksubVox.mat'];
             end
+            return
+        end
 
-        catch
+        if trk_exists && save_trksubVox && ~trksubVox_exists
+            disp('whole_brain_trk.mat exists but trksubVox.mat is missing — re-running tractography to capture per-point metrics');
+        end
 
-            
-            %% Perform tractography in itterations
+        %% Perform tractography in itterations
 
-            for ittr = 1:10
-                cmd = [obj.dsiStudio ...
-                    ' --action=trk' ...
-                    ' --source=' data_for_tracking.dwi_fib ...
-                    ' --fiber_count=' num2str(data_for_tracking.nStreamlines/10) ...
-                    ' --method=1' ...
-                    ' --trim=1' ...
-                    ' --min_length=30' ...
-                    ' --max_length=300' ...
-                    ' --random_seed=1' ...
-                    ' --thread_count=16' ...
-                    ' --step_size=1' ...
-                    ' --export=qa.mat,dti_fa.mat,md.mat,ad.mat,rd.mat' ...
-                    ' --output=' dwi_tt '_ittr' num2str(ittr) '.mat'];
+        for ittr = 1:10
+            cmd = [obj.dsiStudio ...
+                ' --action=trk' ...
+                ' --source=' data_for_tracking.dwi_fib ...
+                ' --fiber_count=' num2str(data_for_tracking.nStreamlines/10) ...
+                ' --method=1' ...
+                ' --trim=1' ...
+                ' --min_length=30' ...
+                ' --max_length=300' ...
+                ' --random_seed=1' ...
+                ' --thread_count=16' ...
+                ' --step_size=1' ...
+                ' --export=qa.mat,dti_fa.mat,md.mat,ad.mat,rd.mat' ...
+                ' --output=' dwi_tt '_ittr' num2str(ittr) '.mat'];
 
-                system(cmd, '-echo');
-            end
+            system(cmd, '-echo');
+        end
 
-            %% concatenate all tracts together
+        %% concatenate all tracts together
 
-            len = [];
-            cord = [];
-            qa = [];
-            dti_fa = [];
-            md = [];
-            ad = [];
-            rd = [];
+        len = [];
+        cord = [];
+        qa = [];
+        dti_fa = [];
+        md = [];
+        ad = [];
+        rd = [];
 
-            for ittr = 1:10
-                load([dwi_tt '_ittr' num2str(ittr) '.mat'],'tracts','length');
+        for ittr = 1:10
+            load([dwi_tt '_ittr' num2str(ittr) '.mat'],'tracts','length');
 
-                cord = [cord single(tracts)];
-                len = [len single(length)];
+            cord = [cord single(tracts)];
+            len = [len single(length)];
 
-                load([dwi_tt '_ittr' num2str(ittr) '.mat.qa.mat'],'data')
-                qa = [qa single(data)];
+            load([dwi_tt '_ittr' num2str(ittr) '.mat.qa.mat'],'data')
+            qa = [qa single(data)];
 
-                load([dwi_tt '_ittr' num2str(ittr) '.mat.dti_fa.mat'],'data')
-                dti_fa = [dti_fa single(data)];
+            load([dwi_tt '_ittr' num2str(ittr) '.mat.dti_fa.mat'],'data')
+            dti_fa = [dti_fa single(data)];
 
-                load([dwi_tt '_ittr' num2str(ittr) '.mat.md.mat'],'data')
-                md = [md single(data)];
+            load([dwi_tt '_ittr' num2str(ittr) '.mat.md.mat'],'data')
+            md = [md single(data)];
 
-                load([dwi_tt '_ittr' num2str(ittr) '.mat.ad.mat'],'data')
-                ad = [ad single(data)];
+            load([dwi_tt '_ittr' num2str(ittr) '.mat.ad.mat'],'data')
+            ad = [ad single(data)];
 
-                load([dwi_tt '_ittr' num2str(ittr) '.mat.rd.mat'],'data')
-                rd = [rd single(data)];
-            end
+            load([dwi_tt '_ittr' num2str(ittr) '.mat.rd.mat'],'data')
+            rd = [rd single(data)];
+        end
 
-            cord = [cord; ones(1,size(cord,2))];
+        cord = [cord; ones(1,size(cord,2))];
 
-            trk.length = len';
-            trk.cord = cord;
+        trk.length = len';
+        trk.cord = cord;
 
-            trksubVox.qa = qa;
-            trksubVox.fa = dti_fa;
-            trksubVox.md = md;
-            trksubVox.ad = ad;
-            trksubVox.rd = rd;
+        trksubVox.qa = qa;
+        trksubVox.fa = dti_fa;
+        trksubVox.md = md;
+        trksubVox.ad = ad;
+        trksubVox.rd = rd;
 
-            %% Compute mean dwi metrics across tracts
+        %% Compute mean dwi metrics across tracts
 
-            ends=(cumsum(double(trk.length)));
-            starts=[1; 1+ends];
+        ends=(cumsum(double(trk.length)));
+        starts=[1; 1+ends];
 
-            trk.startEnd = [starts(1:end-1),ends];
+        trk.startEnd = [starts(1:end-1),ends];
 
-            trk.qaTrk = single(zeros(numel(trk.length),1));
-            trk.faTrk = single(zeros(numel(trk.length),1));
-            trk.mdTrk = single(zeros(numel(trk.length),1));
-            trk.adTrk = single(zeros(numel(trk.length),1));
-            trk.rdTrk = single(zeros(numel(trk.length),1));
+        trk.qaTrk = single(zeros(numel(trk.length),1));
+        trk.faTrk = single(zeros(numel(trk.length),1));
+        trk.mdTrk = single(zeros(numel(trk.length),1));
+        trk.adTrk = single(zeros(numel(trk.length),1));
+        trk.rdTrk = single(zeros(numel(trk.length),1));
 
-            for i=1:numel(trk.length)
-                trk.qaTrk(i,:) = mean(trksubVox.qa(trk.startEnd(i,1):trk.startEnd(i,2)));
-                trk.faTrk(i,:) = mean(trksubVox.fa(trk.startEnd(i,1):trk.startEnd(i,2)));
-                trk.mdTrk(i,:) = mean(trksubVox.md(trk.startEnd(i,1):trk.startEnd(i,2)));
-                trk.adTrk(i,:) = mean(trksubVox.ad(trk.startEnd(i,1):trk.startEnd(i,2)));
-                trk.rdTrk(i,:) = mean(trksubVox.rd(trk.startEnd(i,1):trk.startEnd(i,2)));
-            end
+        for i=1:numel(trk.length)
+            trk.qaTrk(i,:) = mean(trksubVox.qa(trk.startEnd(i,1):trk.startEnd(i,2)));
+            trk.faTrk(i,:) = mean(trksubVox.fa(trk.startEnd(i,1):trk.startEnd(i,2)));
+            trk.mdTrk(i,:) = mean(trksubVox.md(trk.startEnd(i,1):trk.startEnd(i,2)));
+            trk.adTrk(i,:) = mean(trksubVox.ad(trk.startEnd(i,1):trk.startEnd(i,2)));
+            trk.rdTrk(i,:) = mean(trksubVox.rd(trk.startEnd(i,1):trk.startEnd(i,2)));
+        end
 
-            save([dwi_tt '_trk.mat'],'trk','-v7.3');
-            delete([dwi_tt '*_ittr*']) ; % remove all temporary files from each itterations
+        save([dwi_tt '_trk.mat'],'trk','-v7.3');
+        delete([dwi_tt '*_ittr*']) ; % remove all temporary files from each itterations
 
-            mustBeFile([dwi_tt '_trk.mat']);
+        mustBeFile([dwi_tt '_trk.mat']);
 
-            data_for_tracking.dwi_trk = [data_for_tracking.dwi_fib '.trk.gz'];
-            data_for_tracking.dwi_tt_trk = [dwi_tt '_trk.mat'];
-           
+        data_for_tracking.dwi_trk = [data_for_tracking.dwi_fib '.trk.gz'];
+        data_for_tracking.dwi_tt_trk = [dwi_tt '_trk.mat'];
 
-            if save_trksubVox
-                disp('trksubVox is saved');
-                save([dwi_tt '_trksubVox.mat'],'trksubVox','-v7.3');
-                mustBeFile([dwi_tt '_trksubVox.mat']);
-                data_for_tracking.dwi_tt_trksubVox = [dwi_tt '_trksubVox.mat'];
-            else
-                disp('Not saving trksubVox');
-            end
-
+        if save_trksubVox
+            disp('Saving trksubVox');
+            save([dwi_tt '_trksubVox.mat'],'trksubVox','-v7.3');
+            mustBeFile([dwi_tt '_trksubVox.mat']);
+            data_for_tracking.dwi_tt_trksubVox = [dwi_tt '_trksubVox.mat'];
+        else
+            disp('Not saving trksubVox');
         end
     end
 
