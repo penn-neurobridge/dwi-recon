@@ -169,7 +169,13 @@ def atlas_connectivity(
 # ── Private helpers ───────────────────────────────────────────────────
 
 def _parse_dsi_studio_output(raw_dir: Path, lut: pd.DataFrame) -> dict:
-    """Parse DSI Studio connectivity exports into a dict of matrices."""
+    """Parse DSI Studio connectivity exports into a dict of matrices.
+
+    DSI Studio writes one .connectivity.mat per metric, each containing
+    a square ``connectivity`` matrix and a ``name`` field. The ``name``
+    field is a uint8 byte array of newline/space-separated region labels.
+    We select and order the rows/columns to match the lookup table ROIs.
+    """
 
     def _load_conn(pattern: str):
         matches = sorted(raw_dir.glob(pattern))
@@ -177,31 +183,58 @@ def _parse_dsi_studio_output(raw_dir: Path, lut: pd.DataFrame) -> dict:
         d = load_mat(matches[0])
         return d["connectivity"], d.get("name", None)
 
-    count_mat, names = _load_conn("*count*")
+    count_mat, names = _load_conn("*.count.*")
+    labels = _decode_labels(names)
 
-    if names is not None:
-        if isinstance(names, np.ndarray):
-            labels = [str(n).strip() for n in names.ravel()]
-        elif isinstance(names, str):
-            labels = names.split()
-        else:
-            labels = list(names)
-        idx = [labels.index(r) if r in labels else -1 for r in lut["roi"]]
-        idx = np.array([i for i in idx if i >= 0])
+    if labels:
+        idx = np.array(
+            [labels.index(r) for r in lut["roi"] if r in labels], dtype=int
+        )
     else:
-        idx = np.arange(min(len(lut), count_mat.shape[0]))
+        idx = np.array([], dtype=int)
+
+    if idx.size == 0:
+        # Fall back to the leading NxN block if labels could not be matched
+        n = min(len(lut), count_mat.shape[0])
+        idx = np.arange(n, dtype=int)
 
     result = {"count": count_mat[np.ix_(idx, idx)]}
 
     for metric, pattern in [
-        ("fa", "*dti_fa*"),
-        ("length", "*mean_length*"),
-        ("md", "*md*"),
-        ("ad", "*ad*"),
-        ("rd", "*rd*"),
-        ("qa", "*qa*"),
+        ("fa", "*.dti_fa.*"),
+        ("length", "*.mean_length.*"),
+        ("md", "*.md.*"),
+        ("ad", "*.ad.*"),
+        ("rd", "*.rd.*"),
+        ("qa", "*.qa.*"),
     ]:
         mat, _ = _load_conn(pattern)
         result[metric] = mat[np.ix_(idx, idx)]
 
     return result
+
+
+def _decode_labels(names) -> list[str] | None:
+    """Decode a DSI Studio ``name`` field into a list of region labels.
+
+    The field may be a uint8 byte array (ASCII text), a string, bytes, or
+    a string/object ndarray. Returns None if no names are available.
+    """
+    if names is None:
+        return None
+
+    if isinstance(names, np.ndarray):
+        if names.dtype.kind in ("u", "i"):  # uint8/int byte array → ASCII text
+            text = bytes(int(b) for b in names.ravel() if int(b) != 0).decode(
+                "ascii", "replace"
+            )
+        else:  # already a string/object array
+            return [str(n).strip() for n in names.ravel() if str(n).strip()]
+    elif isinstance(names, (bytes, bytearray)):
+        text = bytes(names).decode("ascii", "replace")
+    elif isinstance(names, str):
+        text = names
+    else:
+        return [str(n) for n in names]
+
+    return [t for t in text.replace("\n", " ").split() if t and t != "\x00"]
