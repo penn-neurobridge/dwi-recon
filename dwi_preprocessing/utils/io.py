@@ -73,10 +73,16 @@ def load_h5(path: Path, group: str | None = None) -> dict:
 def _write_dataset(parent, name: str, value) -> None:
     """Write a single dataset, handling strings and arrays."""
     if isinstance(value, np.ndarray):
-        if value.dtype.kind in ("U", "O"):
-            # String array → variable-length UTF-8
+        if value.dtype.kind in ("U", "O", "S"):
+            # String/object array → variable-length UTF-8.
+            # h5py needs an object array of Python str, not a fixed-width
+            # unicode array (np.astype(str) gives e.g. '<U31', which h5py
+            # cannot convert).
             dt = h5py.string_dtype()
-            parent.create_dataset(name, data=value.astype(str), dtype=dt)
+            str_arr = np.array(
+                [str(x) for x in value.ravel()], dtype=object
+            ).reshape(value.shape)
+            parent.create_dataset(name, data=str_arr, dtype=dt)
         else:
             parent.create_dataset(name, data=value, compression="gzip")
     elif isinstance(value, str):
