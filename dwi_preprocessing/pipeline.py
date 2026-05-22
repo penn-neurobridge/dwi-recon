@@ -179,8 +179,10 @@ class DWIPipeline:
         atlas_dir = self.cfg.repo_root / "atlas_lookuptable"
         fib = data.get("fib") or paths.find_fib()
 
-        # Ensure .trk.gz exists
-        trk_gz = fiber_tracking(self.cfg, fib)
+        # Ensure the single-pass .tt.gz exists (same streamline count as tracking)
+        trk_gz = fiber_tracking(
+            self.cfg, fib, n_streamlines=data.get("n_streamlines", 2_500_000)
+        )
 
         # Desikan-Killiany
         lut = atlas_dir / "desikanKilliany.csv"
