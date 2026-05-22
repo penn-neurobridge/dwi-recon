@@ -234,38 +234,71 @@ result = fiber_tracking_ittr(cfg, fib=Path("..."), output_dir=Path("..."), save_
 electrodes = ieeg_grey2white(freesurfer_dir=Path("..."), electrodes_csv=Path("..."), output_dir=Path("..."))
 ```
 
-## Expected Directory Layout
+## Input Data Organization
 
-Each subject is a self-contained dataset (Penn-Neurobridge layout): raw
-data under `primary/sub-<ID>/`, all pipeline outputs directly under
-`derivatives/` (not nested per-subject).
+Each subject is a **self-contained dataset** (Penn-Neurobridge layout). You
+point the tool at the dataset root (`-i <dataset>`); it auto-detects the
+single `sub-<ID>` under `primary/`. Raw inputs live under `primary/`; all
+pipeline outputs are written directly under `derivatives/` (no per-subject
+nesting).
+
+### Required inputs (you must provide these before running)
 
 ```
-<dataset>/                  # e.g. PennEPI000
-  primary/
-    sub-PennEPIxxx/
-      sub-PennEPIxxx_sessions.tsv
-      ses-preimplant/
-        anat/   # *_T1w.nii.gz, *_T2w, *_FLAIR
-        dwi/    # *_dwi.nii.gz, .bval, .bvec, .json
-        fmap/   # *_dir-AP_epi (reversed PE), magnitude1/2, phasediff
-      ses-postimplant/        # (iEEG subjects) ct/, ieeg/
-  derivatives/              # outputs sit directly here (no sub-<ID> layer)
-    freesurfer/             # FreeSurfer recon-all output (input)
-      mri/                  # T1.mgz, wm.mgz, brain.mgz, aparc+aseg.mgz
-      surf/                 # lh.pial, rh.pial, lh.white, rh.white
-    preprocessDWI/
-      topupEddy/            # Eddy-corrected DWI
-      dsiStudio/            # dwi_eddy.sz, *.gqi.fz, whole_brain_trk.h5, whole_brain_trksubVox.h5
-    connectivityDWI/
-      bbr2freesurferT1/     # DWI-to-T1 registration (dwi_to_t1.txt)
-      tracts_to_T1/         # trk_to_t1surfRAS.txt transform + check_alignment.png
-      desikanKilliany/      # Atlas connectivity matrices (connectivity.h5)
-      lausanne2018scale*/
-    ieeg_recon/             # (iEEG subjects) electrode reconstruction
-      module3/
-        electrodes2ROI.csv  # Electrode coordinates + ROI assignments
-    connectivityIEEG/       # Output: edge lists, connectivity matrices
+<dataset>/                              # e.g. PennEPI000  (pass this to -i)
+├── primary/
+│   └── sub-<ID>/                       # exactly one sub-* directory
+│       └── ses-preimplant/
+│           ├── dwi/
+│           │   ├── sub-<ID>_ses-preimplant_dwi.nii.gz   # raw DWI (4D)
+│           │   ├── sub-<ID>_ses-preimplant_dwi.bval
+│           │   ├── sub-<ID>_ses-preimplant_dwi.bvec
+│           │   └── sub-<ID>_ses-preimplant_dwi.json     # needs PhaseEncodingDirection + TotalReadoutTime
+│           ├── fmap/
+│           │   └── sub-<ID>_ses-preimplant_dir-AP_epi.nii.gz   # reversed phase-encode b0 (for topup)
+│           └── anat/
+│               └── sub-<ID>_ses-preimplant_T1w.nii.gz   # (optional; FreeSurfer T1 is used for registration)
+└── derivatives/
+    └── freesurfer/                     # existing FreeSurfer recon-all output
+        ├── mri/                        #   T1.mgz, wm.mgz, brain.mgz, aparc+aseg.mgz,
+        │                               #   lausanne2018.scale1..5.mgz (for Lausanne atlases)
+        └── surf/                       #   lh.pial, rh.pial, lh.white, rh.white
+```
+
+For the **iEEG** pipeline (`ieeg` subcommand) you additionally need the
+electrode reconstruction (from [ieeg-recon](https://github.com/penn-neurobridge/ieeg-recon)):
+
+```
+└── derivatives/
+    └── ieeg_recon/module3/electrodes2ROI.csv   # electrode coords + ROI assignments
+```
+
+Notes:
+- File **names** follow BIDS but the tool matches by suffix (`*_dwi.nii.gz`,
+  `*dir-AP_epi.nii.gz`, `*_T1w.nii.gz`), so minor naming variants are fine.
+- The DWI JSON **must** contain `PhaseEncodingDirection` (e.g. `"j-"`) and
+  `TotalReadoutTime` — these build the topup `acqparams`.
+- FreeSurfer `recon-all` is **not** run here; supply its output. `.mgz`
+  volumes are read with nibabel (no FreeSurfer binary needed).
+- Lausanne atlases are processed only if `lausanne2018.scale*.nii/.mgz`
+  exist in `freesurfer/mri/`; otherwise just Desikan-Killiany is produced.
+
+### Generated outputs
+
+The pipeline writes these under `derivatives/` (created as needed):
+
+```
+derivatives/
+├── preprocessDWI/
+│   ├── topupEddy/        # dwi_eddy.nii.gz, acqparams.txt, topup_*       (eddy step)
+│   └── dsiStudio/        # dwi_eddy.sz, *.gqi.fz, whole_brain_trk.h5,
+│                         #   whole_brain_trksubVox.h5                    (reconstruct + tracking)
+├── connectivityDWI/
+│   ├── bbr2freesurferT1/ # dwi_to_t1.txt                                 (register)
+│   ├── tracts_to_T1/     # trk_to_t1surfRAS.txt, check_alignment.{html,png}  (alignment)
+│   ├── desikanKilliany/  # connectivity.h5                              (atlas)
+│   └── lausanne2018scale1..5/  # connectivity.h5
+└── connectivityIEEG/     # connectivity.h5, edgeList_{d}mmSph.csv         (ieeg)
 ```
 
 ## Output Files (HDF5)
