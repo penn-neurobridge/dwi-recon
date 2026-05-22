@@ -1,0 +1,37 @@
+# docker-compose for the DWI processing and iEEG reconstruction pipeline.
+#
+# Build the image once:
+#   docker compose build
+#
+# Run a pipeline on a dataset (DATASET = the dataset root containing
+# primary/ and derivatives/). Run as your own uid so outputs aren't
+# root-owned:
+#
+#   DATASET=/path/to/PennEPI000 UID=$(id -u) GID=$(id -g) \
+#     docker compose run --rm dwi
+#
+#   DATASET=/path/to/PennEPI001 UID=$(id -u) GID=$(id -g) \
+#     docker compose run --rm ieeg
+#
+# Override options after the service name, e.g.:
+#   ... docker compose run --rm dwi --steps tracking,alignment --n-streamlines 1000000
+
+x-common: &common
+  build:
+    context: .
+  image: dwi-recon:latest
+  platform: linux/amd64          # DSI Studio is x86_64
+  user: "${UID:-1000}:${GID:-1000}"
+  volumes:
+    - "${DATASET:?set DATASET=/path/to/dataset}:/data"
+
+services:
+  # Core DWI pipeline (eddy -> register -> reconstruct -> tracking -> alignment -> atlas)
+  dwi:
+    <<: *common
+    command: ["dwi", "-i", "/data"]
+
+  # iEEG structural connectivity (electrode subjects only)
+  ieeg:
+    <<: *common
+    command: ["ieeg", "-i", "/data"]
