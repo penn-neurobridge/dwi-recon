@@ -76,27 +76,16 @@ This repository provides **two separate pipelines**:
 ### 1. DWI Preprocessing (all subjects)
 
 ```bash
-# Full DWI pipeline (default: tracking + alignment + atlas)
-uv run dwi-preprocess \
-    -s sub-RID0445,sub-RID1046,sub-RID1081 \
-    -b /path/to/bids
-
-# Only tracking + alignment (skip atlas)
-uv run dwi-preprocess \
-    -s sub-RID1171 \
-    -b /path/to/bids --steps tracking,alignment
-
-# Custom streamline count
-uv run dwi-preprocess \
-    -s sub-RID1171 \
-    -b /path/to/bids --n-streamlines 5000000
+uv run dwi-preprocess
 ```
 
-| Step | Flag | Description |
-|---|---|---|
-| `tracking` | `--steps tracking` | Iterative fiber tracking (10 x 250K streamlines) with per-point metric export |
-| `alignment` | `--steps alignment` | Compute tract-to-T1 surface RAS transformation |
-| `atlas` | `--steps atlas` | Atlas-based connectivity matrices (Desikan-Killiany + Lausanne) |
+Opens a GUI window where you can:
+- Enter comma-separated subject IDs
+- Browse for the BIDS directory
+- Optionally browse for a custom `setup_environment.json`
+- Toggle steps: **Tracking**, **Alignment**, **Atlas**
+- Set the streamline count
+- View live log output in the window
 
 ### 2. iEEG Connectivity (electrode subjects only)
 
@@ -104,16 +93,14 @@ Requires the DWI pipeline to have run first. Subjects without
 `electrodes2ROI.csv` are automatically skipped.
 
 ```bash
-# Default (3mm + 5mm spheres)
-uv run dwi-ieeg-connectivity \
-    -s sub-RID0445,sub-RID1046,sub-RID1081,sub-RID1116,sub-RID1171 \
-    -b /path/to/bids
-
-# Custom sphere diameters
-uv run dwi-ieeg-connectivity \
-    -s sub-RID1171 \
-    -b /path/to/bids --sphere-diameters 3,5,10
+uv run dwi-ieeg-connectivity
 ```
+
+Opens a GUI window where you can:
+- Enter comma-separated subject IDs
+- Browse for the BIDS directory
+- Select sphere diameters (3mm, 5mm, 10mm, or custom)
+- View live log output in the window
 
 ### Python API
 
