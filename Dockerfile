@@ -53,7 +53,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY setup_environment.docker.json /app/setup_environment.json
 
 # Entry point — see subcommands: `dwi` and `ieeg`.
-# --no-sync: the venv is already built into the image; don't re-sync at runtime
-# (avoids overhead and writing to /app/.venv when run read-only / non-root).
-ENTRYPOINT ["uv", "run", "--no-sync", "run_dwi_recon.py"]
+# Call the venv python directly (it is first on PATH). This avoids `uv` at
+# runtime entirely — no uv cache writes, so the image runs cleanly as any
+# user (e.g. `--user` on AWS) and starts instantly.
+ENTRYPOINT ["python", "/app/run_dwi_recon.py"]
 CMD ["--help"]
