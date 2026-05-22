@@ -6,7 +6,7 @@ A Python pipeline for diffusion-weighted imaging (DWI) preprocessing, whole-brai
 
 This pipeline takes raw DWI data through eddy/distortion correction, GQI reconstruction, whole-brain tractography, and connectivity analysis at both atlas and electrode levels. It wraps **FSL** and **FreeSurfer** command-line tools and the **Dockerized DSI Studio** (pinned version) in a reproducible Python workflow. Each subject is its own dataset (`primary/` raw BIDS + `derivatives/` outputs).
 
-See [PIPELINE.md](PIPELINE.md) for detailed flowcharts of each processing stage.
+See [PIPELINE.md](PIPELINE.md) for detailed flowcharts of each processing stage, and [API_REFERENCE.md](API_REFERENCE.md) for the Python API.
 
 ## Features
 
