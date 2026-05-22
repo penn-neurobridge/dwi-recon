@@ -15,7 +15,8 @@ dependencies = [
 ]
 
 [project.scripts]
-dwi-connectivity = "run_dwi_preprocessing:main"
+dwi-preprocess = "run_dwi_preprocessing:main"
+dwi-ieeg-connectivity = "run_ieeg_connectivity:main"
 
 [build-system]
 requires = ["hatchling"]

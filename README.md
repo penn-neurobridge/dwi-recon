@@ -66,63 +66,79 @@ Create `setup_environment.json` in the repository root (this file is gitignored)
 
 ## Usage
 
-### Command Line
+This repository provides **two separate pipelines**:
+
+| Pipeline | Command | Runs on |
+|---|---|---|
+| **DWI preprocessing** | `dwi-preprocess` | All subjects (tracking, alignment, atlas connectivity) |
+| **iEEG connectivity** | `dwi-ieeg-connectivity` | Only subjects with implanted electrodes |
+
+### 1. DWI Preprocessing (all subjects)
 
 ```bash
-# Run iEEG connectivity for one subject
-uv run dwi-connectivity \
-    --subjects sub-RID1171 \
-    --bids-path /path/to/bids \
-    --steps ieeg
+# Full DWI pipeline (default: tracking + alignment + atlas)
+uv run dwi-preprocess \
+    -s sub-RID0445,sub-RID1046,sub-RID1081 \
+    -b /path/to/bids
 
-# Run full pipeline (tracking + alignment + atlas + iEEG)
-uv run dwi-connectivity \
-    --subjects sub-RID0445,sub-RID1046,sub-RID1081 \
-    --bids-path /path/to/bids \
-    --steps tracking,alignment,atlas,ieeg
+# Only tracking + alignment (skip atlas)
+uv run dwi-preprocess \
+    -s sub-RID1171 \
+    -b /path/to/bids --steps tracking,alignment
 
-# Custom streamline count and sphere diameters
-uv run dwi-connectivity \
-    --subjects sub-RID1171 \
-    --bids-path /path/to/bids \
-    --steps tracking,alignment,ieeg \
-    --n-streamlines 5000000 \
-    --sphere-diameters 3,5,10
+# Custom streamline count
+uv run dwi-preprocess \
+    -s sub-RID1171 \
+    -b /path/to/bids --n-streamlines 5000000
 ```
-
-### Pipeline Steps
 
 | Step | Flag | Description |
 |---|---|---|
 | `tracking` | `--steps tracking` | Iterative fiber tracking (10 x 250K streamlines) with per-point metric export |
 | `alignment` | `--steps alignment` | Compute tract-to-T1 surface RAS transformation |
 | `atlas` | `--steps atlas` | Atlas-based connectivity matrices (Desikan-Killiany + Lausanne) |
-| `ieeg` | `--steps ieeg` | Electrode-level connectivity with grey-to-white projection |
 
-Steps can be combined: `--steps tracking,alignment,ieeg`
+### 2. iEEG Connectivity (electrode subjects only)
+
+Requires the DWI pipeline to have run first. Subjects without
+`electrodes2ROI.csv` are automatically skipped.
+
+```bash
+# Default (3mm + 5mm spheres)
+uv run dwi-ieeg-connectivity \
+    -s sub-RID0445,sub-RID1046,sub-RID1081,sub-RID1116,sub-RID1171 \
+    -b /path/to/bids
+
+# Custom sphere diameters
+uv run dwi-ieeg-connectivity \
+    -s sub-RID1171 \
+    -b /path/to/bids --sphere-diameters 3,5,10
+```
 
 ### Python API
 
 ```python
 from pathlib import Path
-from dwi_preprocessing import DWIPipeline, run_pipeline, Config
+from dwi_preprocessing import Config, DWIPipeline, IEEGPipeline, run_dwi_pipeline, run_ieeg_pipeline
 
-# Option 1: run_pipeline (like ieeg-recon's run_pipeline)
-run_pipeline(
-    subjects=["sub-RID1171"],
+# ── DWI pipeline (all subjects) ──
+run_dwi_pipeline(
+    subjects=["sub-RID0445", "sub-RID1046"],
     bids_path=Path("/path/to/bids"),
-    steps=["tracking", "alignment", "ieeg"],
 )
 
-# Option 2: DWIPipeline class for finer control
-cfg = Config()
-pipeline = DWIPipeline(Path("/path/to/bids"), cfg)
-results = pipeline.run("sub-RID1171", steps=["ieeg"], sphere_diameters=[3, 5])
+# ── iEEG pipeline (electrode subjects only) ──
+run_ieeg_pipeline(
+    subjects=["sub-RID1171"],
+    bids_path=Path("/path/to/bids"),
+    sphere_diameters=[3, 5],
+)
 
-# Option 3: use individual modules directly
+# ── Use individual modules directly ──
 from dwi_preprocessing.tracking import fiber_tracking_ittr
 from dwi_preprocessing.ieeg_connectivity import ieeg_grey2white, make_edge_list
 
+cfg = Config()
 result = fiber_tracking_ittr(cfg, fib=Path("..."), output_dir=Path("..."), save_trksubvox=True)
 electrodes = ieeg_grey2white(freesurfer_dir=Path("..."), electrodes_csv=Path("..."), output_dir=Path("..."))
 ```
@@ -175,11 +191,13 @@ All outputs use HDF5 format (`.h5`) for efficient storage and cross-language com
 
 ```
 dwi_minimum_preprocessing/
-  run_dwi_preprocessing.py      # CLI entry point (dwi-connectivity)
+  run_dwi_preprocessing.py      # CLI: dwi-preprocess (all subjects)
+  run_ieeg_connectivity.py      # CLI: dwi-ieeg-connectivity (electrode subjects)
   dwi_preprocessing/            # Python package (primary)
-    __init__.py                 # Exports: DWIPipeline, run_pipeline, Config
+    __init__.py                 # Exports: DWIPipeline, IEEGPipeline, Config
     config.py                   # Configuration loader (setup_environment.json)
-    pipeline.py                 # DWIPipeline orchestrator + run_pipeline()
+    pipeline.py                 # DWIPipeline: tracking, alignment, atlas
+    ieeg_pipeline.py            # IEEGPipeline: electrode-level connectivity
     eddy.py                     # Eddy current / distortion correction (FSL)
     registration.py             # EPI-to-T1 BBR registration (FSL epi_reg)
     reconstruction.py           # NIFTI → SRC → GQI (DSI Studio)
