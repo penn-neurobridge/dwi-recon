@@ -119,11 +119,11 @@ This document describes the full DWI preprocessing and connectivity pipeline, fr
 **Tools:** DSI Studio
 
 ```
-  dwi_eddy.nii.gz  ──> dsi_studio --action=src ──> dwi_eddy.src.gz
+  dwi_eddy.nii.gz  ──> dsi_studio --action=src ──> dwi_eddy.sz
   bval, bvec                                             │
                                                          │
-  Brain mask        ──> dsi_studio --action=rec ──> *.gqi*.fib.gz
-                        (GQI, param0=1.25)               │
+  Brain mask        ──> dsi_studio --action=rec ──> *.gqi.fz
+                        (GQI, param=1.25)                │
                                                          │
                     ┌────────────────────────────────────┘
                     │
@@ -346,8 +346,8 @@ RAW DATA
   │    dwi_eddy.eddy_rotated_bvecs       Rotated gradients             │
   ├─────────────────────────────────────────────────────────────────────┤
   │  preprocessDWI/dsiStudio/                                           │
-  │    dwi_eddy.src.gz                   DSI Studio source file        │
-  │    *.gqi*.fib.gz                     GQI reconstruction            │
+  │    dwi_eddy.sz                       DSI Studio source file        │
+  │    *.gqi.fz                          GQI reconstruction            │
   │    whole_brain_trk.mat               Tract coordinates + metrics   │
   │    whole_brain_trksubVox.mat         Per-point diffusion metrics    │
   ├─────────────────────────────────────────────────────────────────────┤

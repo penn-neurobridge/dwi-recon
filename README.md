@@ -25,9 +25,16 @@ See [PIPELINE.md](PIPELINE.md) for detailed flowcharts of each processing stage.
 |---|---|---|
 | [FSL](https://fsl.fmrib.ox.ac.uk/fsl/) | 6.0+ | Eddy correction, registration, brain extraction |
 | [FreeSurfer](https://surfer.nmr.mgh.harvard.edu/) | 7.0+ (8.1.0 recommended) | Surface reconstruction, parcellation |
-| [DSI Studio](https://dsi-studio.labsolver.org/) | 2022+ | GQI reconstruction, fiber tracking |
+| [Docker](https://www.docker.com/) | Latest | Runs DSI Studio (no local install needed) |
+| DSI Studio | `dsistudio/dsistudio:hou-2026-05-17` (pinned, auto-pulled) | GQI reconstruction, fiber tracking, connectivity |
 | Python | 3.13+ | Pipeline runtime |
 | [uv](https://docs.astral.sh/uv/) | Latest | Package manager |
+
+> **DSI Studio runs in Docker** — you do not need a local install. The pinned
+> image is `dsistudio/dsistudio:hou-2026-05-17` (set in `config.py`). On Apple
+> Silicon it runs under `linux/amd64` emulation automatically. To use a local
+> binary instead, set `"dsiStudioMode": "local"` and `"dsiStudio": "/path/to/dsi_studio"`
+> in `setup_environment.json`.
 
 ### Setup
 
@@ -56,13 +63,23 @@ Create `setup_environment.json` in the repository root (this file is gitignored)
     "SUBJECTS_DIR": "/path/to/bids/data",
     "freeSurferLoc": "/path/to/freesurfer/8.1.0/bin",
     "fslLoc": "/path/to/fsl/bin",
-    "dsiStudio": "/path/to/dsi_studio",
+    "dsiStudioMode": "docker",
     "FS_LICENSE": "/path/to/freesurfer/license.txt",
     "SURFER_FRONTDOOR": "1",
     "dockerSynb0disco": "sudo /usr/local/bin/docker",
     "singularityLoc": " "
 }
 ```
+
+DSI Studio keys (all optional — sensible defaults in `config.py`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `dsiStudioMode` | `docker` | `docker` (pinned image) or `local` (binary) |
+| `dsiStudioDocker` | `dsistudio/dsistudio:hou-2026-05-17` | image tag when mode=docker |
+| `dsiStudio` | — | path to local `dsi_studio` when mode=local |
+| `dockerCmd` | `docker` | docker executable |
+| `dockerPlatform` | auto (`linux/amd64` on arm64) | platform flag |
 
 ## Usage
 
@@ -158,7 +175,7 @@ The pipeline expects a BIDS-like directory structure:
         surf/               # lh.pial, rh.pial, lh.white, rh.white
       preprocessDWI/
         topupEddy/          # Eddy-corrected DWI
-        dsiStudio/          # SRC, fib.gz, whole_brain_trk.h5, whole_brain_trksubVox.h5
+        dsiStudio/          # dwi_eddy.sz, *.gqi.fz, whole_brain_trk.h5, whole_brain_trksubVox.h5
       connectivityDWI/
         bbr2freesurferT1/   # DWI-to-T1 registration (dwi_to_t1.txt)
         tracts_to_T1/       # trk_to_t1surfRAS.txt transform
