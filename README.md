@@ -33,12 +33,24 @@ nibabel; you supply existing `recon-all` output as input).
 # Pull the prebuilt image (amd64)
 docker pull nishantsinha89/dwi-recon:latest
 
-# Run the DWI pipeline on a dataset (mount the dataset at /data)
-docker run --rm -v /local/path/PennEPI000:/data nishantsinha89/dwi-recon dwi  -i /data
+# Mount your dataset's host path on the LEFT of -v; /data (right) is the
+# in-container mount. --platform silences the amd64-on-arm warning; --user
+# keeps outputs owned by you (not root).
+docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" \
+    -v /absolute/host/path/PennEPI000:/data \
+    nishantsinha89/dwi-recon dwi  -i /data
 
 # Run iEEG connectivity (electrode subjects)
-docker run --rm -v /local/path/PennEPI001:/data nishantsinha89/dwi-recon ieeg -i /data
+docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" \
+    -v /absolute/host/path/PennEPI001:/data \
+    nishantsinha89/dwi-recon ieeg -i /data
 ```
+
+> The `-v HOST:/data` host path must be an **absolute, existing** path. On
+> macOS it must be under a Docker Desktop **shared** location (paths under
+> your home dir / `/Users` are shared by default; arbitrary roots like
+> `/data` are not — configure extras in Docker → Settings → Resources →
+> File Sharing).
 
 To build locally instead of pulling:
 
