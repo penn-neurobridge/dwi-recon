@@ -1,0 +1,7 @@
+{
+    "FSLDIR": "/opt/conda",
+    "FSLOUTPUTTYPE": "NIFTI_GZ",
+    "fslLoc": "/opt/conda/bin",
+    "dsiStudioMode": "local",
+    "dsiStudio": "/opt/dsi-studio/dsi_studio"
+}

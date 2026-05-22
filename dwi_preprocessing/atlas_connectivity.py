@@ -13,8 +13,7 @@ import pandas as pd
 
 from dwi_preprocessing.config import Config
 from dwi_preprocessing.utils.dsi import run_dsi
-from dwi_preprocessing.utils.io import load_mat, save_h5
-from dwi_preprocessing.utils.shell import run
+from dwi_preprocessing.utils.io import load_mat, mgz_to_nii, save_h5
 from dwi_preprocessing.utils.surfaces import vox2ras_tkreg, vox2ras_0to1
 
 
@@ -38,7 +37,7 @@ def get_roi_coords(
     output_dir : Path
         Output directory for atlas.h5.
     cfg : Config, optional
-        For mri_convert (only needed if .mgz → .nii.gz conversion required).
+        Unused (kept for backward compatibility).
 
     Returns
     -------
@@ -51,12 +50,11 @@ def get_roi_coords(
         print(f"  Atlas {atlas_name} already loaded — skipping")
         return atlas_h5
 
-    # Convert atlas if needed
+    # Convert atlas .mgz → .nii.gz if needed (nibabel, no FreeSurfer binary)
     mri_dir = freesurfer_dir / "mri"
     atlas_nii = mri_dir / f"{atlas_name}.nii.gz"
-    if not atlas_nii.is_file() and cfg is not None:
-        atlas_mgz = mri_dir / f"{atlas_name}.mgz"
-        run([cfg.fs("mri_convert"), atlas_mgz, atlas_nii])
+    if not atlas_nii.is_file():
+        mgz_to_nii(mri_dir / f"{atlas_name}.mgz", atlas_nii)
 
     atlas_img = nib.load(str(atlas_nii))
     atlas_data = np.asarray(atlas_img.dataobj)

@@ -15,6 +15,22 @@ import numpy as np
 import scipy.io as sio
 
 
+def mgz_to_nii(mgz: Path, nii: Path) -> Path:
+    """Convert a FreeSurfer .mgz volume to .nii.gz using nibabel.
+
+    Replaces a `mri_convert` call so the pipeline needs no FreeSurfer
+    binary. No-op if the .nii.gz already exists.
+    """
+    nii = Path(nii)
+    if nii.is_file():
+        return nii
+    import nibabel as nib
+
+    img = nib.load(str(mgz))
+    nib.save(img, str(nii))
+    return nii
+
+
 # ── HDF5 (primary output format) ─────────────────────────────────────
 
 def save_h5(path: Path, data: dict) -> None:

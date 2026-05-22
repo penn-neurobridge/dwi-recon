@@ -19,6 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
+dwi-recon = "run_dwi_recon:app"
 dwi-preprocess = "run_dwi_preprocessing:app"
 dwi-ieeg-connectivity = "run_ieeg_connectivity:app"
 
@@ -28,3 +29,5 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["dwi_preprocessing"]
+# Top-level entry-point scripts (not part of the package)
+include = ["run_dwi_recon.py", "run_dwi_preprocessing.py", "run_ieeg_connectivity.py"]

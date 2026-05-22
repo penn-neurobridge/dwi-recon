@@ -1,7 +1,12 @@
 """Configuration loader for DWI preprocessing pipeline.
 
-Reads setup_environment.json from the repository root and sets up
-environment variables for FSL, FreeSurfer, and DSI Studio.
+Reads setup_environment.json and sets up environment variables for FSL
+and DSI Studio. FreeSurfer is NOT required — .mgz volumes are read with
+nibabel, so no FreeSurfer binary is needed.
+
+Only ``FSLDIR`` and ``FSLOUTPUTTYPE`` are required; everything else has
+sensible defaults (e.g. ``fslLoc`` defaults to ``$FSLDIR/bin``). This lets
+the same minimal config work inside the Docker image.
 """
 
 import json
@@ -33,9 +38,10 @@ class Config:
 
         self.repo_root = config_path.parent
 
-        # Tool locations
-        self.fsl_loc = self._data["fslLoc"]
-        self.freesurfer_loc = self._data["freeSurferLoc"]
+        # FSL: fslLoc defaults to $FSLDIR/bin
+        self.fsl_loc = self._data.get("fslLoc") or os.path.join(self._data["FSLDIR"], "bin")
+        # FreeSurfer is optional (only used historically for mri_convert)
+        self.freesurfer_loc = self._data.get("freeSurferLoc", "")
         self.docker_synb0disco = self._data.get("dockerSynb0disco", "")
         self.singularity_loc = self._data.get("singularityLoc", "").strip()
 
@@ -56,16 +62,14 @@ class Config:
         self._setup_env()
 
     def _setup_env(self):
-        """Set FSL and FreeSurfer environment variables."""
+        """Set FSL (and optional FreeSurfer) environment variables."""
         os.environ["FSLDIR"] = self._data["FSLDIR"]
-        os.environ["FSLOUTPUTTYPE"] = self._data["FSLOUTPUTTYPE"]
-        os.environ["FREESURFER_HOME"] = self._data["FREESURFER_HOME"]
-        os.environ["SUBJECTS_DIR"] = self._data["SUBJECTS_DIR"]
+        os.environ["FSLOUTPUTTYPE"] = self._data.get("FSLOUTPUTTYPE", "NIFTI_GZ")
 
-        if "FS_LICENSE" in self._data:
-            os.environ["FS_LICENSE"] = self._data["FS_LICENSE"]
-        if "SURFER_FRONTDOOR" in self._data:
-            os.environ["SURFER_FRONTDOOR"] = self._data["SURFER_FRONTDOOR"]
+        # FreeSurfer settings are optional (FreeSurfer is not required)
+        for key in ("FREESURFER_HOME", "SUBJECTS_DIR", "FS_LICENSE", "SURFER_FRONTDOOR"):
+            if key in self._data:
+                os.environ[key] = self._data[key]
 
     def fsl(self, tool: str) -> str:
         """Return full path to an FSL tool, e.g. config.fsl('flirt')."""

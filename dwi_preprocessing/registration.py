@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from dwi_preprocessing.config import Config
+from dwi_preprocessing.utils.io import mgz_to_nii
 from dwi_preprocessing.utils.shell import run
 
 
@@ -58,7 +59,7 @@ def register_epi2t1(
     # Convert FreeSurfer volumes to NIfTI
     mri_dir = freesurfer_dir / "mri"
     for vol in ("wm", "T1", "brain"):
-        _convert_mgz(cfg, mri_dir / f"{vol}.mgz", mri_dir / f"{vol}.nii.gz")
+        mgz_to_nii(mri_dir / f"{vol}.mgz", mri_dir / f"{vol}.nii.gz")
 
     wm_nii = mri_dir / "wm.nii.gz"
     t1_nii = mri_dir / "T1.nii.gz"
@@ -89,12 +90,3 @@ def register_epi2t1(
         "b0_brain": b0_brain,
         "b0_brain_mask": b0_brain_mask,
     }
-
-
-# ── Private helpers ───────────────────────────────────────────────────
-
-def _convert_mgz(cfg: Config, mgz: Path, nii: Path) -> None:
-    """Convert FreeSurfer .mgz to .nii.gz if not already done."""
-    if nii.is_file():
-        return
-    run([cfg.fs("mri_convert"), mgz, nii])
