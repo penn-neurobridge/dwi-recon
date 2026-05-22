@@ -15,7 +15,8 @@ class Config:
     def __init__(self, config_path: str | Path | None = None):
         if config_path is None:
             # Default: repo_root/setup_environment.json
-            repo_root = Path(__file__).resolve().parent.parent.parent
+            # __file__ is dwi_preprocessing/config.py -> parent.parent = repo root
+            repo_root = Path(__file__).resolve().parent.parent
             config_path = repo_root / "setup_environment.json"
 
         config_path = Path(config_path)
