@@ -1,66 +1,128 @@
-"""I/O helpers for loading/saving .mat files.
+"""I/O helpers — HDF5 as the primary format.
 
-DSI Studio and the MATLAB pipeline produce .mat files in two flavours:
-  - v5 format  (scipy.io.loadmat can read)
-  - v7.3 / HDF5 format  (h5py required)
+Per-subject outputs are stored as HDF5 (.h5) with groups for each
+analysis type (ieeg-sc-3mmSph, sc-desikanKilliany, etc.) and datasets
+for each metric (ad, count, fa, length, md, qa, rd).
 
-The save functions always write v7.3 (HDF5) for compatibility with
-large arrays (>2 GB) via h5py.
+Legacy .mat loading is kept for reading DSI Studio exports and
+existing whole_brain_trk.mat / trksubVox.mat files.
 """
 
-import numpy as np
-import scipy.io as sio
-import h5py
 from pathlib import Path
 
+import h5py
+import numpy as np
+import scipy.io as sio
 
-def load_mat(path: str | Path, variable: str | None = None):
+
+# ── HDF5 (primary output format) ─────────────────────────────────────
+
+def save_h5(path: Path, data: dict) -> None:
+    """Save a nested dict to an HDF5 file.
+
+    Top-level string keys become groups; numpy arrays become datasets.
+    Supports one level of nesting (group/dataset).
+
+    Parameters
+    ----------
+    path : Path
+        Output .h5 file path.
+    data : dict
+        ``{group_name: {dataset_name: np.ndarray, ...}, ...}``
+        or ``{dataset_name: np.ndarray, ...}`` for flat files.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(str(path), "w") as f:
+        for key, val in data.items():
+            if isinstance(val, dict):
+                grp = f.create_group(key)
+                for k2, v2 in val.items():
+                    _write_dataset(grp, k2, v2)
+            else:
+                _write_dataset(f, key, val)
+
+
+def load_h5(path: Path, group: str | None = None) -> dict:
+    """Load an HDF5 file (or a single group) as a nested dict.
+
+    Parameters
+    ----------
+    path : Path
+        Input .h5 file.
+    group : str, optional
+        If given, load only this group.
+
+    Returns
+    -------
+    dict of numpy arrays or nested dicts.
+    """
+    out: dict = {}
+    with h5py.File(str(path), "r") as f:
+        root = f[group] if group else f
+        for key in root:
+            item = root[key]
+            if isinstance(item, h5py.Group):
+                out[key] = {k: np.array(item[k]) for k in item}
+            else:
+                out[key] = np.array(item)
+    return out
+
+
+def _write_dataset(parent, name: str, value) -> None:
+    """Write a single dataset, handling strings and arrays."""
+    if isinstance(value, np.ndarray):
+        if value.dtype.kind in ("U", "O"):
+            # String array → variable-length UTF-8
+            dt = h5py.string_dtype()
+            parent.create_dataset(name, data=value.astype(str), dtype=dt)
+        else:
+            parent.create_dataset(name, data=value, compression="gzip")
+    elif isinstance(value, str):
+        parent.create_dataset(name, data=value, dtype=h5py.string_dtype())
+    else:
+        parent.create_dataset(name, data=value)
+
+
+# ── Legacy .mat loading (for DSI Studio exports) ─────────────────────
+
+def load_mat(path: Path, variable: str | None = None):
     """Load a .mat file, auto-detecting v5 vs v7.3 format.
 
     Parameters
     ----------
-    path : path to .mat file
-    variable : if given, return only this variable; otherwise return dict
+    path : Path
+        .mat file path.
+    variable : str, optional
+        If given, return only this variable.
 
     Returns
     -------
-    The requested variable (numpy array) or a dict of all variables.
+    numpy array (if variable given) or dict of arrays.
     """
     path = str(path)
 
-    # Try scipy first (v5 format — used by DSI Studio exports)
+    # Try scipy first (v5 — used by DSI Studio exports)
     try:
         data = sio.loadmat(path, simplify_cells=True)
-        if variable:
-            return data[variable]
-        return data
+        return data[variable] if variable else data
     except NotImplementedError:
-        pass  # v7.3 / HDF5 — fall through
+        pass  # v7.3 / HDF5
 
-    # HDF5 / v7.3 format (used by MATLAB save -v7.3)
     with h5py.File(path, "r") as f:
         if variable:
             return np.array(f[variable])
-        return {key: np.array(f[key]) for key in f.keys()}
+        return _read_h5_recursive(f)
 
 
-def save_mat_v73(path: str | Path, data_dict: dict):
-    """Save arrays to a v7.3 (HDF5) .mat file.
-
-    Parameters
-    ----------
-    path : output file path
-    data_dict : {variable_name: numpy_array}
-    """
-    path = str(path)
-    with h5py.File(path, "w") as f:
-        for key, val in data_dict.items():
-            if isinstance(val, np.ndarray):
-                f.create_dataset(key, data=val, compression="gzip")
-            elif isinstance(val, dict):
-                grp = f.create_group(key)
-                for k2, v2 in val.items():
-                    if isinstance(v2, np.ndarray):
-                        grp.create_dataset(k2, data=v2, compression="gzip")
-            else:
-                f.create_dataset(key, data=val)
+def _read_h5_recursive(group) -> dict:
+    """Recursively read an HDF5 group into a dict."""
+    out: dict = {}
+    for key in group:
+        item = group[key]
+        if isinstance(item, h5py.Group):
+            out[key] = _read_h5_recursive(item)
+        else:
+            out[key] = np.array(item)
+    return out

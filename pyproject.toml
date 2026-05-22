@@ -1,6 +1,6 @@
 [project]
 name = "dwi-minimum-preprocessing"
-version = "0.1.0"
+version = "0.2.0"
 description = "DWI preprocessing and structural connectivity pipeline"
 requires-python = ">=3.13"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dwi-connectivity = "dwi_preprocessing.run_connectivity:main"
+dwi-connectivity = "run_dwi_preprocessing:main"
 
 [build-system]
 requires = ["hatchling"]

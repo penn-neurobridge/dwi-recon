@@ -104,25 +104,27 @@ Steps can be combined: `--steps tracking,alignment,ieeg`
 ### Python API
 
 ```python
-from dwi_preprocessing.config import Config
-from dwi_preprocessing.preprocess_dwi import PreprocessDWI
-from dwi_preprocessing.ieeg_sc import IEEGsc
+from pathlib import Path
+from dwi_preprocessing import DWIPipeline, run_pipeline, Config
 
-cfg = Config()  # loads setup_environment.json from repo root
-subject = PreprocessDWI(cfg)
-subject.output = "/path/to/bids/sub-RID1171/derivatives"
-subject.freesurfer_dir = f"{subject.output}/freesurfer"
+# Option 1: run_pipeline (like ieeg-recon's run_pipeline)
+run_pipeline(
+    subjects=["sub-RID1171"],
+    bids_path=Path("/path/to/bids"),
+    steps=["tracking", "alignment", "ieeg"],
+)
 
-# Run fiber tracking
-data = {"nStreamlines": 2500000, "dwi_fib": "/path/to/fib.gz"}
-data = subject.fiber_tracking_ittr(data, save_trksubvox=True)
-data = subject.align_tracts_to_t1(data)
+# Option 2: DWIPipeline class for finer control
+cfg = Config()
+pipeline = DWIPipeline(Path("/path/to/bids"), cfg)
+results = pipeline.run("sub-RID1171", steps=["ieeg"], sphere_diameters=[3, 5])
 
-# iEEG connectivity
-ieeg = IEEGsc(subject.output)
-electrodes = ieeg.ieeg_grey2white()
-edge_list = ieeg.make_edge_list(electrodes, sphere_dia=5.0)
-connectivity = ieeg.make_connectivity_matrix(edge_list, sphere_dia=5.0)
+# Option 3: use individual modules directly
+from dwi_preprocessing.tracking import fiber_tracking_ittr
+from dwi_preprocessing.ieeg_connectivity import ieeg_grey2white, make_edge_list
+
+result = fiber_tracking_ittr(cfg, fib=Path("..."), output_dir=Path("..."), save_trksubvox=True)
+electrodes = ieeg_grey2white(freesurfer_dir=Path("..."), electrodes_csv=Path("..."), output_dir=Path("..."))
 ```
 
 ## Expected Directory Layout
@@ -138,7 +140,7 @@ The pipeline expects a BIDS-like directory structure:
         surf/               # lh.pial, rh.pial, lh.white, rh.white
       preprocessDWI/
         topupEddy/          # Eddy-corrected DWI
-        dsiStudio/          # SRC, fib.gz, whole_brain_trk.mat, whole_brain_trksubVox.mat
+        dsiStudio/          # SRC, fib.gz, whole_brain_trk.h5, whole_brain_trksubVox.h5
       connectivityDWI/
         bbr2freesurferT1/   # DWI-to-T1 registration (dwi_to_t1.txt)
         tracts_to_T1/       # trk_to_t1surfRAS.txt transform
@@ -150,47 +152,59 @@ The pipeline expects a BIDS-like directory structure:
       connectivityIEEG/     # Output: edge lists, connectivity matrices
 ```
 
-## Output Files
+## Output Files (HDF5)
+
+All outputs use HDF5 format (`.h5`) for efficient storage and cross-language compatibility.
 
 ### Fiber Tracking
-- `whole_brain_trk.mat` — Tract coordinates (4 x N), per-tract mean QA/FA/MD/AD/RD
-- `whole_brain_trksubVox.mat` — Per-point QA/FA/MD/AD/RD along each streamline
+- `whole_brain_trk.h5` — `trk/{cord, length, start_idx, end_idx, qa, fa, md, ad, rd}`
+- `whole_brain_trksubVox.h5` — `trksubVox/{qa, fa, md, ad, rd}` per-point along each streamline
 
 ### Atlas Connectivity
-- `connectivity.mat` — Symmetric NxN matrices for count, FA, MD, AD, RD, QA, mean length
+- `connectivity.h5` — `{count, fa, md, ad, rd, qa, length}` as NxN matrices
 
 ### iEEG Connectivity
 - `electrodes_surf_proj.csv` — Electrodes with grey-to-white matter projected coordinates
 - `edgeList_{d}mmSph.csv` — Per-tract edges between electrode pairs within d mm sphere
-- `connectivity_{d}mmSph.mat` — Symmetric NxN connectivity matrices (count, length, QA, FA, MD, AD, RD)
+- `connectivity.h5` — Per-subject HDF5 with groups:
+  - `ieeg/{coordinate, labels}` — Electrode metadata
+  - `ieeg-atlas-dkt/{roi, roi_fsnum}` — Atlas ROI assignments
+  - `ieeg-sc-{d}mmSph/{ad, count, fa, length, md, qa, rd}` — NxN connectivity matrices
 
 ## Repository Structure
 
 ```
 dwi_minimum_preprocessing/
-  dwi_preprocessing/          # Python package (primary)
-    __init__.py
-    config.py                 # Configuration loader (setup_environment.json)
-    preprocess_dwi.py         # PreprocessDWI class — eddy, registration, tracking
-    ieeg_sc.py                # IEEGsc class — electrode connectivity
-    run_connectivity.py       # CLI entry point (dwi-connectivity)
+  run_dwi_preprocessing.py      # CLI entry point (dwi-connectivity)
+  dwi_preprocessing/            # Python package (primary)
+    __init__.py                 # Exports: DWIPipeline, run_pipeline, Config
+    config.py                   # Configuration loader (setup_environment.json)
+    pipeline.py                 # DWIPipeline orchestrator + run_pipeline()
+    eddy.py                     # Eddy current / distortion correction (FSL)
+    registration.py             # EPI-to-T1 BBR registration (FSL epi_reg)
+    reconstruction.py           # NIFTI → SRC → GQI (DSI Studio)
+    tracking.py                 # Fiber tracking: single + iterative (DSI Studio)
+    alignment.py                # Tract-to-T1 surface RAS alignment
+    atlas_connectivity.py       # Atlas-based structural connectivity
+    ieeg_connectivity.py        # iEEG electrode-level connectivity
     utils/
-      io.py                   # .mat file I/O (v5 + v7.3/HDF5)
-      surfaces.py             # FreeSurfer surface + coordinate utilities
-      geometry.py             # Point-in-mesh tests (trimesh)
-  matlab/                     # Legacy MATLAB implementation
-    preprocessDWI.m           # Original preprocessing class
-    iEEGsc.m                  # Original iEEG connectivity class
-    mainConnectivity.m        # Full pipeline wrapper
-    mainConnectivityIEEG.m    # iEEG-specific wrapper
-    mainEddy.m                # Eddy correction wrapper
-    dependencies/             # MATLAB helper functions
-  atlas_lookuptable/          # Parcellation lookup tables + annotation files
-  pyproject.toml              # uv / pip project configuration
-  uv.lock                     # Locked dependency versions
-  setup_environment.json      # Machine-specific tool paths (gitignored)
-  PIPELINE.md                 # Pipeline flowcharts and documentation
-  LICENSE                     # MIT License
+      shell.py                  # Subprocess helper (list-style commands)
+      io.py                     # HDF5 I/O + legacy .mat loading
+      surfaces.py               # FreeSurfer surface + coordinate utilities
+      geometry.py               # Point-in-mesh tests (trimesh)
+  matlab/                       # Legacy MATLAB implementation
+    preprocessDWI.m             # Original preprocessing class
+    iEEGsc.m                    # Original iEEG connectivity class
+    mainConnectivity.m          # Full pipeline wrapper
+    mainConnectivityIEEG.m      # iEEG-specific wrapper
+    mainEddy.m                  # Eddy correction wrapper
+    dependencies/               # MATLAB helper functions
+  atlas_lookuptable/            # Parcellation lookup tables + annotation files
+  pyproject.toml                # uv / pip project configuration
+  uv.lock                       # Locked dependency versions
+  setup_environment.json        # Machine-specific tool paths (gitignored)
+  PIPELINE.md                   # Pipeline flowcharts and documentation
+  LICENSE                       # MIT License
 ```
 
 ## MATLAB (Legacy)
