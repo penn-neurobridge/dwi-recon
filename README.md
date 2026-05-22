@@ -45,6 +45,15 @@ containing `primary/` and `derivatives/` (see [layout](#expected-directory-layou
 The image is **amd64-only** (DSI Studio ships x86_64) — it runs natively on
 AWS/x86 and under emulation on Apple Silicon.
 
+Notes:
+- **Memory**: the full 2.5M-streamline run holds the whole-brain tracts in
+  memory during HDF5 assembly (~8–10 GB peak). Give the container/instance
+  ≥ 16 GB, or lower `--n-streamlines`.
+- **Alignment QC**: the interactive `check_alignment.html` is always written.
+  The static `check_alignment.png` additionally needs Chrome/Chromium (for
+  plotly/kaleido), which is not bundled — it is skipped in the image
+  (non-fatal). Local runs with Chrome installed produce the PNG too.
+
 ### On AWS
 
 Build/push to a registry (ECR or Docker Hub) and run on EC2, ECS, or AWS Batch:
