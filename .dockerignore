@@ -9,5 +9,3 @@ __pycache__
 .ruff_cache
 # local machine config — the image uses setup_environment.docker.json
 setup_environment.json
-# legacy MATLAB implementation is not needed in the image
-matlab

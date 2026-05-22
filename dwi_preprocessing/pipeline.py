@@ -89,12 +89,9 @@ class DWIPipeline:
         print("  [eddy] topup + eddy correction...")
         start = timer()
         acqparams = prepare_acqparams(paths.dwi_json, paths.topup_eddy_dir)
-        # topup config: prefer the FSL-shipped one ($FSLDIR/etc/flirtsch),
-        # fall back to the repo copy (local setups with matlab/ present).
+        # topup config ships with FSL at $FSLDIR/etc/flirtsch
         import os
-        fsl_b02b0 = Path(os.environ.get("FSLDIR", "")) / "etc" / "flirtsch" / "b02b0_1.cnf"
-        repo_b02b0 = self.cfg.repo_root / "matlab" / "dependencies" / "b02b0_1.cnf"
-        b02b0 = fsl_b02b0 if fsl_b02b0.is_file() else repo_b02b0
+        b02b0 = Path(os.environ["FSLDIR"]) / "etc" / "flirtsch" / "b02b0_1.cnf"
         result = topup_eddy(
             cfg=self.cfg,
             dwi=paths.dwi,

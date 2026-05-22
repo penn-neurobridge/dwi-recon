@@ -291,13 +291,6 @@ dwi-recon/
       io.py                     # HDF5 I/O, .mat loading, mgz→nii (nibabel)
       surfaces.py               # FreeSurfer surface + coordinate utilities
       geometry.py               # Point-in-mesh tests (trimesh)
-  matlab/                       # Legacy MATLAB implementation
-    preprocessDWI.m             # Original preprocessing class
-    iEEGsc.m                    # Original iEEG connectivity class
-    mainConnectivity.m          # Full pipeline wrapper
-    mainConnectivityIEEG.m      # iEEG-specific wrapper
-    mainEddy.m                  # Eddy correction wrapper
-    dependencies/               # MATLAB helper functions
   atlas_lookuptable/            # Parcellation lookup tables + annotation files
   pyproject.toml                # uv / pip project configuration
   uv.lock                       # Locked dependency versions
@@ -305,26 +298,6 @@ dwi-recon/
   PIPELINE.md                   # Pipeline flowcharts and documentation
   LICENSE                       # MIT License
 ```
-
-## MATLAB (Legacy)
-
-The original MATLAB implementation is preserved in `matlab/`. To use it:
-
-```matlab
-addpath('matlab');
-addpath('matlab/dependencies');
-
-% Load configuration
-subject = preprocessDWI();
-
-% Run full pipeline
-mainConnectivity(subjects, BIDS_path, dwi_repo_path);
-
-% Run iEEG connectivity only
-mainConnectivityIEEG(subjects, BIDS_path, dwi_repo_path);
-```
-
-Requires MATLAB R2019b+ with Statistics and Machine Learning Toolbox and Parallel Computing Toolbox.
 
 ## Author
 
