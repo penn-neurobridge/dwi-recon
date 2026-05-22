@@ -107,9 +107,9 @@ def atlas_connectivity(
     cfg : Config
         Pipeline configuration.
     fib : Path
-        GQI fib.gz file.
+        GQI fib (.fz) file.
     trk_gz : Path
-        Whole-brain .trk.gz file.
+        Whole-brain tract file (.tt.gz).
     freesurfer_dir : Path
         FreeSurfer subject directory.
     atlas_name : str
@@ -142,14 +142,17 @@ def atlas_connectivity(
         "--action=ana",
         f"--source={fib}",
         f"--tract={trk_gz}",
-        f"--t1t2={t1_nii}",
+        # Atlas (FreeSurfer T1 space) is registered to the FIB (DWI space)
+        # using this reference volume. (Hou renamed --t1t2 to --other_slices.)
+        f"--other_slices={t1_nii}",
         f"--connectivity={atlas_file}",
+        # NB: the connectivity (ana) metrics use 'dti_fa', unlike exp/trk
+        # which use 'fa'.
         "--connectivity_value=dti_fa,md,ad,rd,count,mean_length,qa",
         "--connectivity_type=end",
-        "--connectivity_threshold=0",
     ])
 
-    # Move raw DSI Studio output files
+    # Move the combined connectivity .mat to raw_export
     fib_dir = fib.parent
     raw_dir = output_dir / "raw_export"
     raw_dir.mkdir(exist_ok=True)
@@ -171,23 +174,33 @@ def atlas_connectivity(
 
 # ── Private helpers ───────────────────────────────────────────────────
 
+# Map our metric names to DSI Studio "Hou" region-to-region matrix keys.
+_R2R_KEYS = {
+    "count": "number of tracts r2r",
+    "length": "mean length(mm) r2r",
+    "fa": "dti_fa r2r",
+    "md": "md r2r",
+    "ad": "ad r2r",
+    "rd": "rd r2r",
+    "qa": "qa r2r",
+}
+
+
 def _parse_dsi_studio_output(raw_dir: Path, lut: pd.DataFrame) -> dict:
-    """Parse DSI Studio connectivity exports into a dict of matrices.
+    """Parse the combined DSI Studio connectivity .mat into metric matrices.
 
-    DSI Studio writes one .connectivity.mat per metric, each containing
-    a square ``connectivity`` matrix and a ``name`` field. The ``name``
-    field is a uint8 byte array of newline/space-separated region labels.
-    We select and order the rows/columns to match the lookup table ROIs.
+    The Hou release writes a single ``*.connectivity.mat`` containing, for
+    each metric, a region-to-region matrix ``"<metric> r2r"`` and a
+    tract-to-region vector ``"<metric> t2r"``, plus a ``name`` field (uint8
+    byte array of region labels). We select and reorder rows/columns to
+    match the lookup-table ROIs.
     """
+    matches = sorted(raw_dir.glob("*connectivity*.mat"))
+    assert matches, f"No connectivity .mat in {raw_dir}"
+    d = load_mat(matches[0])
 
-    def _load_conn(pattern: str):
-        matches = sorted(raw_dir.glob(pattern))
-        assert matches, f"No file matching {pattern} in {raw_dir}"
-        d = load_mat(matches[0])
-        return d["connectivity"], d.get("name", None)
-
-    count_mat, names = _load_conn("*.count.*")
-    labels = _decode_labels(names)
+    labels = _decode_labels(d.get("name"))
+    count_mat = np.asarray(d[_R2R_KEYS["count"]])
 
     if labels:
         idx = np.array(
@@ -201,19 +214,10 @@ def _parse_dsi_studio_output(raw_dir: Path, lut: pd.DataFrame) -> dict:
         n = min(len(lut), count_mat.shape[0])
         idx = np.arange(n, dtype=int)
 
-    result = {"count": count_mat[np.ix_(idx, idx)]}
-
-    for metric, pattern in [
-        ("fa", "*.dti_fa.*"),
-        ("length", "*.mean_length.*"),
-        ("md", "*.md.*"),
-        ("ad", "*.ad.*"),
-        ("rd", "*.rd.*"),
-        ("qa", "*.qa.*"),
-    ]:
-        mat, _ = _load_conn(pattern)
+    result = {}
+    for metric, key in _R2R_KEYS.items():
+        mat = np.asarray(d[key])
         result[metric] = mat[np.ix_(idx, idx)]
-
     return result
 
 

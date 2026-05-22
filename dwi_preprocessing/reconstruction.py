@@ -2,13 +2,20 @@
 
 Converts eddy-corrected DWI to SRC format, then reconstructs a GQI
 fib file with scalar maps (QA, FA, MD, AD, RD).
+
+Uses the DSI Studio "Hou" (2026+) file formats and CLI:
+  SRC = .sz, FIB = .gqi.fz, scalar maps = <fib>.<metric>.nii.gz.
+The diffusivity metrics (fa, ad, rd, md) are only stored in the fib when
+requested via --other_output at reconstruction time.
 """
 
-import glob
 from pathlib import Path
 
 from dwi_preprocessing.config import Config
 from dwi_preprocessing.utils.dsi import run_dsi
+
+# Scalar metrics stored in the fib and exported as NIfTI
+_METRICS = ("fa", "ad", "rd", "md", "qa")
 
 
 def nifti2src(
@@ -18,14 +25,14 @@ def nifti2src(
     bvec: Path,
     output_dir: Path,
 ) -> Path:
-    """Convert eddy-corrected DWI to DSI Studio SRC format.
+    """Convert eddy-corrected DWI to DSI Studio SRC format (.sz).
 
     Returns
     -------
-    Path to the created .src.gz file.
+    Path to the created .sz file.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    dwi_src = output_dir / "dwi_eddy.src.gz"
+    dwi_src = output_dir / "dwi_eddy.sz"
 
     if dwi_src.is_file():
         print("  SRC already exists — skipping")
@@ -39,8 +46,9 @@ def nifti2src(
         f"--output={dwi_src}",
     ])
 
-    assert dwi_src.is_file(), f"SRC creation failed: {dwi_src}"
-    return dwi_src
+    matches = sorted(output_dir.glob("dwi_eddy*.sz"))
+    assert matches, f"SRC creation failed: no .sz in {output_dir}"
+    return matches[0]
 
 
 def src2gqi(
@@ -49,17 +57,17 @@ def src2gqi(
     brain_mask: Path,
     output_dir: Path,
 ) -> dict[str, Path]:
-    """Reconstruct GQI fib file from SRC.
+    """Reconstruct GQI fib (.fz) from SRC and export scalar maps.
 
     Returns
     -------
     dict with keys: fib, qa, fa, md, ad, rd
     """
-    fib_matches = sorted(output_dir.glob("*gqi*fib.gz"))
+    fib_matches = sorted(output_dir.glob("*.fz"))
 
     if fib_matches:
         fib = fib_matches[0]
-        fa = Path(f"{fib}.dti_fa.nii.gz")
+        fa = Path(f"{fib}.fa.nii.gz")
         if fib.is_file() and fa.is_file():
             print("  GQI fib already exists — skipping")
             return _fib_paths(fib)
@@ -68,22 +76,21 @@ def src2gqi(
         "--action=rec",
         f"--source={dwi_src}",
         "--method=4",
-        "--param0=1.25",
-        "--check_btable=1",
-        "--align_acpc=0",
+        "--param=1.25",
         f"--mask={brain_mask}",
+        f"--other_output={','.join(_METRICS)}",
         "--record_odf=0",
     ])
 
-    fib_matches = sorted(output_dir.glob("*gqi*fib.gz"))
-    assert fib_matches, "GQI reconstruction failed — no fib.gz found"
+    fib_matches = sorted(output_dir.glob("*.fz"))
+    assert fib_matches, "GQI reconstruction failed — no .fz found"
     fib = fib_matches[0]
 
-    # Export scalar maps
+    # Export scalar maps as NIfTI
     run_dsi(cfg, [
         "--action=exp",
         f"--source={fib}",
-        "--export=qa,dti_fa,md,ad,rd",
+        f"--export={','.join(_METRICS)}",
     ])
 
     return _fib_paths(fib)
@@ -96,7 +103,7 @@ def _fib_paths(fib: Path) -> dict[str, Path]:
     return {
         "fib": fib,
         "qa": Path(f"{fib}.qa.nii.gz"),
-        "fa": Path(f"{fib}.dti_fa.nii.gz"),
+        "fa": Path(f"{fib}.fa.nii.gz"),
         "md": Path(f"{fib}.md.nii.gz"),
         "ad": Path(f"{fib}.ad.nii.gz"),
         "rd": Path(f"{fib}.rd.nii.gz"),

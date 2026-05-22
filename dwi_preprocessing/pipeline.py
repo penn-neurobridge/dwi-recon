@@ -170,7 +170,7 @@ class DWIPipeline:
         result = align_tracts_to_t1(
             freesurfer_dir=paths.freesurfer_dir,
             dwi_to_t1=data.get("dwi_to_t1", paths.dwi_to_t1),
-            fa_nii=Path(f"{fib}.dti_fa.nii.gz"),
+            fa_nii=data.get("fa", Path(f"{fib}.fa.nii.gz")),
             trk_h5=data.get("trk", paths.trk_h5),
             output_dir=paths.tracts_to_t1_dir,
         )
@@ -259,14 +259,14 @@ class SubjectPaths:
         self.electrodes_csv = self.deriv / "ieeg_recon" / "module3" / "electrodes2ROI.csv"
 
     def find_fib(self) -> Path:
-        """Locate the GQI fib.gz in the dsiStudio directory."""
-        matches = sorted(self.dsi_studio_dir.glob("*gqi*fib.gz"))
-        assert matches, f"No fib.gz found in {self.dsi_studio_dir}"
+        """Locate the GQI fib (.fz) in the dsiStudio directory."""
+        matches = sorted(self.dsi_studio_dir.glob("*.fz"))
+        assert matches, f"No .fz fib found in {self.dsi_studio_dir}"
         return matches[0]
 
     @property
     def fa_nii(self) -> Path:
-        return Path(f"{self.find_fib()}.dti_fa.nii.gz")
+        return Path(f"{self.find_fib()}.fa.nii.gz")
 
     @staticmethod
     def _one(directory: Path, pattern: str) -> Path:

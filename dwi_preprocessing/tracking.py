@@ -1,6 +1,6 @@
 """Whole-brain fiber tracking via DSI Studio.
 
-Supports both single-pass tracking (.trk.gz) and iterative tracking
+Supports both single-pass tracking (.tt.gz) and iterative tracking
 with per-point diffusion metric export (whole_brain_trk.h5,
 whole_brain_trksubVox.h5).
 """
@@ -19,22 +19,22 @@ def fiber_tracking(
     fib: Path,
     n_streamlines: int = 2_500_000,
 ) -> Path:
-    """Run whole-brain fiber tracking (single pass, .trk.gz output).
+    """Run whole-brain fiber tracking (single pass, .tt.gz output).
 
     Returns
     -------
-    Path to the .trk.gz file.
+    Path to the .tt.gz file.
     """
-    trk_gz = Path(f"{fib}.trk.gz")
+    trk_gz = Path(f"{fib}.tt.gz")
 
     if trk_gz.is_file():
-        print("  Fiber tracking (.trk.gz) already complete — skipping")
+        print("  Fiber tracking (.tt.gz) already complete — skipping")
         return trk_gz
 
     run_dsi(cfg, [
         "--action=trk",
         f"--source={fib}",
-        f"--fiber_count={n_streamlines}",
+        f"--tract_count={n_streamlines}",
         "--method=1",
         "--trim=1",
         "--min_length=30",
@@ -64,7 +64,7 @@ def fiber_tracking_ittr(
     cfg : Config
         Pipeline configuration.
     fib : Path
-        GQI fib.gz file.
+        GQI fib (.fz) file.
     output_dir : Path
         DSI Studio output directory.
     n_streamlines : int
@@ -103,14 +103,14 @@ def fiber_tracking_ittr(
         run_dsi(cfg, [
             "--action=trk",
             f"--source={fib}",
-            f"--fiber_count={per_iter}",
+            f"--tract_count={per_iter}",
             "--method=1",
             "--trim=1",
             "--min_length=30",
             "--max_length=300",
             "--thread_count=16",
             "--step_size=1",
-            "--export=qa.mat,dti_fa.mat,md.mat,ad.mat,rd.mat",
+            "--export=qa.mat,fa.mat,md.mat,ad.mat,rd.mat",
             f"--output={out_mat}",
         ])
 
@@ -146,7 +146,7 @@ def _concatenate_iterations(prefix: Path) -> dict:
         all_len.append(d["length"].astype(np.float32).ravel())
 
         all_qa.append(load_mat(Path(f"{base}.qa.mat"), "data").astype(np.float32).ravel())
-        all_fa.append(load_mat(Path(f"{base}.dti_fa.mat"), "data").astype(np.float32).ravel())
+        all_fa.append(load_mat(Path(f"{base}.fa.mat"), "data").astype(np.float32).ravel())
         all_md.append(load_mat(Path(f"{base}.md.mat"), "data").astype(np.float32).ravel())
         all_ad.append(load_mat(Path(f"{base}.ad.mat"), "data").astype(np.float32).ravel())
         all_rd.append(load_mat(Path(f"{base}.rd.mat"), "data").astype(np.float32).ravel())
