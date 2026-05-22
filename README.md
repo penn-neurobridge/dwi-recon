@@ -4,7 +4,7 @@ A Python pipeline for diffusion-weighted imaging (DWI) preprocessing, whole-brai
 
 ## Overview
 
-This pipeline takes raw DWI data through eddy/distortion correction, GQI reconstruction, whole-brain tractography, and connectivity analysis at both atlas and electrode levels. It wraps **FSL** and **FreeSurfer** command-line tools and the **Dockerized DSI Studio** (pinned version) in a reproducible Python workflow. Each subject is its own dataset (`primary/` raw BIDS + `derivatives/` outputs).
+This pipeline takes raw DWI data through eddy/distortion correction, GQI reconstruction, whole-brain tractography, and connectivity analysis at both atlas and electrode levels. It wraps **FSL** and **DSI Studio** in a reproducible Python workflow, and consumes existing **FreeSurfer** `recon-all` output (no FreeSurfer binary needed — `.mgz` volumes are read with nibabel). Each subject is its own dataset (`primary/` raw BIDS + `derivatives/` outputs).
 
 See [PIPELINE.md](PIPELINE.md) for detailed flowcharts of each processing stage, and [API_REFERENCE.md](API_REFERENCE.md) for the Python API.
 
@@ -161,31 +161,34 @@ DSI Studio keys (all optional — sensible defaults in `config.py`):
 
 ## Usage
 
-This repository provides **two separate pipelines**:
+A single command, `dwi-recon`, exposes **two subcommands** (the same ones
+used as the Docker entrypoint above):
 
-| Pipeline | Command | Runs on |
-|---|---|---|
-| **DWI preprocessing** | `dwi-preprocess` | All subjects (tracking, alignment, atlas connectivity) |
-| **iEEG connectivity** | `dwi-ieeg-connectivity` | Only subjects with implanted electrodes |
+| Subcommand | Runs on |
+|---|---|
+| `dwi-recon dwi` | every subject — eddy → register → reconstruct → tracking → alignment → atlas |
+| `dwi-recon ieeg` | only subjects with implanted electrodes |
 
 Each subject is its own **dataset directory** containing `primary/`
-(raw BIDS) and `derivatives/` (outputs). Point the tools at the dataset
-root with `-i/--dataset-path`.
+(raw BIDS) and `derivatives/` (outputs). Point the tool at the dataset
+root with `-i/--dataset-path`. The examples below show local
+(`uv run`) usage; under Docker, substitute
+`docker run … nishantsinha89/dwi-recon` for `uv run dwi-recon`.
 
-### 1. DWI Preprocessing (all subjects)
+### 1. DWI pipeline (all subjects)
 
 ```bash
 # Full DWI pipeline on one dataset
-uv run dwi-preprocess -i /path/to/PennEPI000
+uv run dwi-recon dwi -i /path/to/PennEPI000
 
 # Multiple datasets (comma-separated)
-uv run dwi-preprocess -i /path/to/PennEPI000,/path/to/PennEPI001
+uv run dwi-recon dwi -i /path/to/PennEPI000,/path/to/PennEPI001
 
 # Only tracking + alignment (skip eddy/register/reconstruct/atlas)
-uv run dwi-preprocess -i /path/to/PennEPI000 --steps tracking,alignment
+uv run dwi-recon dwi -i /path/to/PennEPI000 --steps tracking,alignment
 
 # Custom streamline count
-uv run dwi-preprocess -i /path/to/PennEPI000 --n-streamlines 5000000
+uv run dwi-recon dwi -i /path/to/PennEPI000 --n-streamlines 5000000
 ```
 
 | Step | Description |
@@ -197,21 +200,23 @@ uv run dwi-preprocess -i /path/to/PennEPI000 --n-streamlines 5000000
 | `alignment` | Compute tract-to-T1 surface RAS transformation + QC |
 | `atlas` | Atlas-based connectivity matrices (Desikan-Killiany + Lausanne) |
 
-### 2. iEEG Connectivity (electrode datasets only)
+### 2. iEEG connectivity (electrode datasets only)
 
 Requires the DWI pipeline to have run first. Datasets without
 `derivatives/ieeg_recon/module3/electrodes2ROI.csv` are auto-skipped.
 
 ```bash
 # Default (3mm + 5mm spheres)
-uv run dwi-ieeg-connectivity -i /path/to/PennEPI001
+uv run dwi-recon ieeg -i /path/to/PennEPI001
 
 # Multiple datasets, custom sphere diameters
-uv run dwi-ieeg-connectivity -i /path/to/PennEPI001,/path/to/PennEPI004 \
+uv run dwi-recon ieeg -i /path/to/PennEPI001,/path/to/PennEPI004 \
     --sphere-diameters 3,5,10
 ```
 
-Run either command with `--help` for the full Typer-generated help.
+Run `uv run dwi-recon --help` (or `… dwi --help` / `… ieeg --help`) for the
+full Typer-generated help. The standalone commands `dwi-preprocess` and
+`dwi-ieeg-connectivity` remain available as equivalents.
 
 ### Python API
 

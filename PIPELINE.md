@@ -16,12 +16,13 @@ Tools: **FSL** and **FreeSurfer** run locally; **DSI Studio** runs from a
 pinned Docker image (`dsistudio/dsistudio:hou-2026-05-17`). All pipeline
 outputs are **HDF5** (`.h5`).
 
-The pipeline is split into two independent entry points:
+The pipeline has a single entry point, `dwi-recon` (`run_dwi_recon.py`),
+with two subcommands:
 
 | Command | Stages | Runs on |
 |---|---|---|
-| `dwi-preprocess -i <dataset>` | eddy → register → reconstruct → tracking → alignment → atlas | every subject |
-| `dwi-ieeg-connectivity -i <dataset>` | grey→white → edge list → connectivity | electrode subjects only |
+| `dwi-recon dwi -i <dataset>` | eddy → register → reconstruct → tracking → alignment → atlas | every subject |
+| `dwi-recon ieeg -i <dataset>` | grey→white → edge list → connectivity | electrode subjects only |
 
 ## High-Level Overview
 
@@ -106,12 +107,12 @@ negated vector.
 ## Stage 2: EPI-to-T1 Registration
 
 **Module:** `registration.py` — `register_epi2t1()`
-**Tools:** FSL (`fslroi`, `bet`, `fslmaths`, `epi_reg`), FreeSurfer (`mri_convert`)
+**Tools:** FSL (`fslroi`, `bet`, `fslmaths`, `epi_reg`); `.mgz`→`.nii.gz` via nibabel
 
 ```
   dwi_eddy.nii.gz ──> fslroi ──> b0 ──> bet ──> b0_brain (+ mask)
                                                     │
-  FreeSurfer T1/wm/brain.mgz ──> mri_convert ──> .nii.gz
+  FreeSurfer T1/wm/brain.mgz ──> nibabel ──> .nii.gz   (no FreeSurfer binary)
                                                     │
                                           ┌─────────▼──────────┐
                                           │  FSL epi_reg (BBR)  │
@@ -236,7 +237,7 @@ matrices for `count, fa, md, ad, rd, qa, length`.
 ## Stage 6: iEEG Electrode-Level Connectivity
 
 **Module:** `ieeg_connectivity.py` — `ieeg_grey2white()`, `make_edge_list()`,
-`make_connectivity_matrix()` (separate `dwi-ieeg-connectivity` pipeline)
+`make_connectivity_matrix()` (the `dwi-recon ieeg` subcommand)
 
 Requires Stage 3 + 4 outputs and `derivatives/ieeg_recon/module3/electrodes2ROI.csv`.
 
