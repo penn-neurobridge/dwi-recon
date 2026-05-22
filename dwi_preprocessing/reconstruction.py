@@ -8,7 +8,7 @@ import glob
 from pathlib import Path
 
 from dwi_preprocessing.config import Config
-from dwi_preprocessing.utils.shell import run
+from dwi_preprocessing.utils.dsi import run_dsi
 
 
 def nifti2src(
@@ -31,8 +31,7 @@ def nifti2src(
         print("  SRC already exists — skipping")
         return dwi_src
 
-    run([
-        cfg.dsi_studio,
+    run_dsi(cfg, [
         "--action=src",
         f"--source={dwi_eddy}",
         f"--bval={bval}",
@@ -65,8 +64,7 @@ def src2gqi(
             print("  GQI fib already exists — skipping")
             return _fib_paths(fib)
 
-    run([
-        cfg.dsi_studio,
+    run_dsi(cfg, [
         "--action=rec",
         f"--source={dwi_src}",
         "--method=4",
@@ -82,8 +80,7 @@ def src2gqi(
     fib = fib_matches[0]
 
     # Export scalar maps
-    run([
-        cfg.dsi_studio,
+    run_dsi(cfg, [
         "--action=exp",
         f"--source={fib}",
         "--export=qa,dti_fa,md,ad,rd",

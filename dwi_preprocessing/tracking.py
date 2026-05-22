@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 
 from dwi_preprocessing.config import Config
+from dwi_preprocessing.utils.dsi import run_dsi
 from dwi_preprocessing.utils.io import load_mat, save_h5
-from dwi_preprocessing.utils.shell import run
 
 
 def fiber_tracking(
@@ -31,8 +31,7 @@ def fiber_tracking(
         print("  Fiber tracking (.trk.gz) already complete — skipping")
         return trk_gz
 
-    run([
-        cfg.dsi_studio,
+    run_dsi(cfg, [
         "--action=trk",
         f"--source={fib}",
         f"--fiber_count={n_streamlines}",
@@ -40,7 +39,6 @@ def fiber_tracking(
         "--trim=1",
         "--min_length=30",
         "--max_length=300",
-        "--random_seed=0",
         "--step_size=1",
         f"--output={trk_gz}",
     ])
@@ -102,8 +100,7 @@ def fiber_tracking_ittr(
     per_iter = n_streamlines // 10
     for ittr in range(1, 11):
         out_mat = Path(f"{prefix}_ittr{ittr}.mat")
-        run([
-            cfg.dsi_studio,
+        run_dsi(cfg, [
             "--action=trk",
             f"--source={fib}",
             f"--fiber_count={per_iter}",
@@ -111,7 +108,6 @@ def fiber_tracking_ittr(
             "--trim=1",
             "--min_length=30",
             "--max_length=300",
-            "--random_seed=1",
             "--thread_count=16",
             "--step_size=1",
             "--export=qa.mat,dti_fa.mat,md.mat,ad.mat,rd.mat",

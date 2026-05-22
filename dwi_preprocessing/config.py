@@ -6,7 +6,12 @@ environment variables for FSL, FreeSurfer, and DSI Studio.
 
 import json
 import os
+import platform
 from pathlib import Path
+
+# Pinned DSI Studio Docker image. Update this single line to bump the version.
+# (DSI Studio uses date-stamped release tags under the current codename.)
+DEFAULT_DSI_STUDIO_IMAGE = "dsistudio/dsistudio:hou-2026-05-17"
 
 
 class Config:
@@ -31,9 +36,21 @@ class Config:
         # Tool locations
         self.fsl_loc = self._data["fslLoc"]
         self.freesurfer_loc = self._data["freeSurferLoc"]
-        self.dsi_studio = self._data["dsiStudio"]
         self.docker_synb0disco = self._data.get("dockerSynb0disco", "")
         self.singularity_loc = self._data.get("singularityLoc", "").strip()
+
+        # DSI Studio: Docker (default, portable) or local binary.
+        #   setup_environment.json keys (all optional):
+        #     "dsiStudioMode":   "docker" (default) | "local"
+        #     "dsiStudioDocker": image tag (default: pinned DEFAULT_DSI_STUDIO_IMAGE)
+        #     "dsiStudio":       path to local dsi_studio binary (mode=local)
+        #     "dockerCmd":       docker executable (default: "docker")
+        #     "dockerPlatform":  e.g. "linux/amd64" (auto on Apple Silicon)
+        self.dsi_studio = self._data.get("dsiStudio", "")  # local binary (legacy)
+        self.dsi_studio_image = self._data.get("dsiStudioDocker", DEFAULT_DSI_STUDIO_IMAGE)
+        self.dsi_use_docker = self._data.get("dsiStudioMode", "docker") == "docker"
+        self.docker_cmd = self._data.get("dockerCmd", "docker")
+        self.docker_platform = self._data.get("dockerPlatform", _default_docker_platform())
 
         # Set environment variables
         self._setup_env()
@@ -57,3 +74,14 @@ class Config:
     def fs(self, tool: str) -> str:
         """Return full path to a FreeSurfer tool, e.g. config.fs('mri_convert')."""
         return os.path.join(self.freesurfer_loc, tool)
+
+
+def _default_docker_platform() -> str:
+    """Return the platform flag DSI Studio needs, or '' if none.
+
+    The dsistudio/dsistudio image is amd64-only, so Apple Silicon (arm64)
+    must run it via emulation with --platform linux/amd64.
+    """
+    if platform.machine().lower() in ("arm64", "aarch64"):
+        return "linux/amd64"
+    return ""

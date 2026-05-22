@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from dwi_preprocessing.config import Config
+from dwi_preprocessing.utils.dsi import run_dsi
 from dwi_preprocessing.utils.io import load_mat, save_h5
 from dwi_preprocessing.utils.shell import run
 from dwi_preprocessing.utils.surfaces import vox2ras_tkreg, vox2ras_0to1
@@ -137,8 +138,7 @@ def atlas_connectivity(
         lut["roi"] = ["lausanne2018_" + str(n) for n in lut["roiNum"]]
 
     t1_nii = freesurfer_dir / "mri" / "T1.nii.gz"
-    run([
-        cfg.dsi_studio,
+    run_dsi(cfg, [
         "--action=ana",
         f"--source={fib}",
         f"--tract={trk_gz}",
