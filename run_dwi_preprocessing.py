@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """CLI entry point for the core DWI preprocessing pipeline.
 
-Runs for ALL subjects. Full chain:
-  eddy -> register -> reconstruct -> tracking -> alignment -> atlas
-
-Raw inputs are read from a "primary" BIDS root; outputs are written to a
-separate "derivatives" root (where FreeSurfer recon-all output already lives).
+Operates on per-subject dataset directories (Penn-Neurobridge layout):
+each dataset root contains primary/ (raw BIDS) and derivatives/ (outputs).
+Full chain: eddy -> register -> reconstruct -> tracking -> alignment -> atlas.
 
 Usage:
-  # Full DWI pipeline (default: all steps)
-  uv run dwi-preprocess -s sub-PennEPIxxx -p /path/to/primary -d /path/to/derivatives
+  # Full DWI pipeline on one dataset
+  uv run dwi-preprocess -i /path/to/PennEPI000
 
-  # Skip eddy (e.g. eddy outputs already copied in), start at registration
-  uv run dwi-preprocess -s sub-PennEPIxxx -p /path/to/primary -d /path/to/derivatives \\
+  # Multiple datasets (comma-separated)
+  uv run dwi-preprocess -i /path/to/PennEPI000,/path/to/PennEPI001
+
+  # Skip eddy (e.g. eddy outputs already present), start at registration
+  uv run dwi-preprocess -i /path/to/PennEPI000 \\
       --steps register,reconstruct,tracking,alignment,atlas
 """
 
@@ -28,19 +29,10 @@ app = typer.Typer(add_completion=False)
 
 @app.command()
 def main(
-    subjects: str = typer.Option(
-        ..., "-s", "--subjects",
-        help="Comma-separated subject IDs (e.g. sub-PennEPIxxx,sub-PennEPIyyy)",
-    ),
-    primary_path: Path = typer.Option(
-        ..., "-p", "--primary-path",
-        exists=True, file_okay=False, dir_okay=True,
-        help="BIDS primary root (raw inputs: <subject>/ses-preimplant/...)",
-    ),
-    derivatives_path: Path = typer.Option(
-        ..., "-d", "--derivatives-path",
-        exists=True, file_okay=False, dir_okay=True,
-        help="Derivatives root (outputs: <subject>/freesurfer, preprocessDWI, ...)",
+    dataset_path: str = typer.Option(
+        ..., "-i", "--dataset-path",
+        help="Dataset root(s) containing primary/ and derivatives/ "
+             "(comma-separated for multiple)",
     ),
     config: Optional[Path] = typer.Option(
         None, "-c", "--config",
@@ -57,26 +49,28 @@ def main(
     ),
 ):
     """DWI preprocessing pipeline (eddy, register, reconstruct, tracking, alignment, atlas)."""
-    subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
+    datasets = [Path(p.strip()) for p in dataset_path.split(",") if p.strip()]
     step_list = [s.strip() for s in steps.split(",") if s.strip()]
 
     invalid = set(step_list) - set(ALL_STEPS)
     if invalid:
         raise typer.BadParameter(f"Invalid steps: {invalid}. Valid: {ALL_STEPS}")
 
+    for ds in datasets:
+        if not ds.is_dir():
+            raise typer.BadParameter(f"Dataset not found: {ds}")
+        if not (ds / "primary").is_dir():
+            raise typer.BadParameter(f"No primary/ under {ds}")
+
     typer.echo("DWI Preprocessing Pipeline")
-    typer.echo(f"  Subjects:      {subject_list}")
-    typer.echo(f"  Primary:       {primary_path}")
-    typer.echo(f"  Derivatives:   {derivatives_path}")
-    typer.echo(f"  Steps:         {step_list}")
-    typer.echo(f"  Streamlines:   {n_streamlines}")
+    typer.echo(f"  Datasets:     {[d.name for d in datasets]}")
+    typer.echo(f"  Steps:        {step_list}")
+    typer.echo(f"  Streamlines:  {n_streamlines}")
 
     from dwi_preprocessing.pipeline import run_dwi_pipeline
 
     run_dwi_pipeline(
-        subjects=subject_list,
-        primary_path=primary_path,
-        derivatives_path=derivatives_path,
+        dataset_paths=datasets,
         steps=step_list,
         config_path=config,
         n_streamlines=n_streamlines,

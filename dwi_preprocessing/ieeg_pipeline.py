@@ -17,35 +17,24 @@ from dwi_preprocessing.pipeline import SubjectPaths
 
 
 class IEEGPipeline:
-    """Orchestrates iEEG structural connectivity for a single subject.
+    """Orchestrates iEEG structural connectivity for a single subject dataset.
 
     Parameters
     ----------
-    primary_path : Path
-        BIDS primary root (raw inputs).
-    derivatives_path : Path
-        Derivatives root (DWI outputs + iEEG outputs).
     cfg : Config
         Pipeline configuration (tool paths, env vars).
     """
 
-    def __init__(
-        self,
-        primary_path: Path,
-        derivatives_path: Path,
-        cfg: Config | None = None,
-    ):
-        self.primary_path = Path(primary_path)
-        self.derivatives_path = Path(derivatives_path)
+    def __init__(self, cfg: Config | None = None):
         self.cfg = cfg or Config()
 
     def run(
         self,
-        subject: str,
+        dataset_path: Path,
         sphere_diameters: list[float] | None = None,
         n_streamlines: int = 2_500_000,
     ) -> dict[str, Path]:
-        """Run iEEG connectivity for a single subject.
+        """Run iEEG connectivity for a single subject dataset.
 
         Prerequisites: the core DWI pipeline must have produced
         whole_brain_trk.h5, whole_brain_trksubVox.h5, and
@@ -53,8 +42,8 @@ class IEEGPipeline:
 
         Parameters
         ----------
-        subject : str
-            Subject ID (e.g. "sub-PennEPIxxx").
+        dataset_path : Path
+            Dataset root containing primary/ and derivatives/.
         sphere_diameters : list of float
             Sphere diameters in mm (default: [3, 5]).
         n_streamlines : int
@@ -67,11 +56,11 @@ class IEEGPipeline:
         if sphere_diameters is None:
             sphere_diameters = [3.0, 5.0]
 
-        paths = SubjectPaths(self.primary_path, self.derivatives_path, subject)
+        paths = SubjectPaths(dataset_path)
 
         # Validate: electrodes must exist
         if not paths.electrodes_csv.is_file():
-            print(f"  SKIP {subject} — no electrodes2ROI.csv")
+            print(f"  SKIP {paths.subject} — no electrodes2ROI.csv")
             return {}
 
         # Validate: DWI pipeline must have run
@@ -135,25 +124,19 @@ class IEEGPipeline:
 
 
 def run_ieeg_pipeline(
-    subjects: list[str],
-    primary_path: Path,
-    derivatives_path: Path,
+    dataset_paths: list[Path],
     config_path: Path | None = None,
     sphere_diameters: list[float] | None = None,
     n_streamlines: int = 2_500_000,
 ) -> dict[str, dict[str, Path]]:
-    """Run iEEG connectivity for multiple subjects.
+    """Run iEEG connectivity for one or more subject datasets.
 
-    Subjects without electrodes2ROI.csv are automatically skipped.
+    Datasets without electrodes2ROI.csv are automatically skipped.
 
     Parameters
     ----------
-    subjects : list of str
-        Subject IDs.
-    primary_path : Path
-        BIDS primary root (raw inputs).
-    derivatives_path : Path
-        Derivatives root.
+    dataset_paths : list of Path
+        Dataset roots, each containing primary/ and derivatives/.
     config_path : Path, optional
         Path to setup_environment.json.
     sphere_diameters : list of float, optional
@@ -166,21 +149,21 @@ def run_ieeg_pipeline(
     dict mapping subject IDs to their output paths.
     """
     cfg = Config(config_path) if config_path else Config()
-    pipeline = IEEGPipeline(primary_path, derivatives_path, cfg)
+    pipeline = IEEGPipeline(cfg)
     all_results: dict[str, dict[str, Path]] = {}
 
-    for i, rid in enumerate(subjects):
+    for i, ds in enumerate(dataset_paths):
+        ds = Path(ds)
         print(f"\n{'=' * 60}")
-        print(f"iEEG connectivity: {rid} ({i + 1}/{len(subjects)})")
+        print(f"iEEG connectivity: {ds.name} ({i + 1}/{len(dataset_paths)})")
         print(f"{'=' * 60}")
 
-        results = pipeline.run(rid, sphere_diameters, n_streamlines)
-        all_results[rid] = results
+        all_results[ds.name] = pipeline.run(ds, sphere_diameters, n_streamlines)
 
-        print(f"  Done: {rid}")
+        print(f"  Done: {ds.name}")
 
     print(f"\n{'=' * 60}")
-    print("All subjects complete")
+    print("All datasets complete")
     print(f"{'=' * 60}")
 
     return all_results

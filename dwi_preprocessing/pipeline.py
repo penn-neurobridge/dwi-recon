@@ -3,9 +3,13 @@
 Core DWI pipeline that runs for EVERY subject. Full chain:
   eddy -> register -> reconstruct -> tracking -> alignment -> atlas
 
-Raw inputs are read from a "primary" BIDS root; all outputs are written
-to a separate "derivatives" root. FreeSurfer recon-all output is expected
-to already exist under the derivatives root.
+Operates on a per-subject "dataset" directory (Penn-Neurobridge layout)::
+
+    <dataset>/primary/sub-<ID>/ses-preimplant/{dwi,fmap,anat}/...   (raw inputs)
+    <dataset>/derivatives/{freesurfer,preprocessDWI,connectivityDWI,...}  (outputs)
+
+Note derivatives are NOT nested under the subject — the whole dataset is one
+subject. FreeSurfer recon-all output is expected to already exist.
 
 This pipeline does NOT include iEEG connectivity — that is a separate
 pipeline in ieeg_pipeline.py for subjects with implanted electrodes.
@@ -25,36 +29,25 @@ class DWIPipeline:
 
     Parameters
     ----------
-    primary_path : Path
-        BIDS "primary" root containing <subject>/ses-preimplant/{dwi,fmap,anat}.
-    derivatives_path : Path
-        Derivatives root containing <subject>/{freesurfer,preprocessDWI,...}.
     cfg : Config
         Pipeline configuration (tool paths, env vars).
     """
 
-    def __init__(
-        self,
-        primary_path: Path,
-        derivatives_path: Path,
-        cfg: Config | None = None,
-    ):
-        self.primary_path = Path(primary_path)
-        self.derivatives_path = Path(derivatives_path)
+    def __init__(self, cfg: Config | None = None):
         self.cfg = cfg or Config()
 
     def run(
         self,
-        subject: str,
+        dataset_path: Path,
         steps: list[str] | None = None,
         n_streamlines: int = 2_500_000,
     ) -> dict:
-        """Run the DWI pipeline for a single subject.
+        """Run the DWI pipeline for a single subject dataset.
 
         Parameters
         ----------
-        subject : str
-            Subject ID (e.g. "sub-PennEPIxxx").
+        dataset_path : Path
+            Dataset root containing primary/ and derivatives/.
         steps : list of str, optional
             Steps to execute. Default: all steps.
             Valid: eddy, register, reconstruct, tracking, alignment, atlas.
@@ -68,7 +61,7 @@ class DWIPipeline:
         if steps is None:
             steps = list(ALL_STEPS)
 
-        paths = SubjectPaths(self.primary_path, self.derivatives_path, subject)
+        paths = SubjectPaths(dataset_path)
 
         # Threaded data dict (mirrors MATLAB data_for_tracking)
         data: dict = {"n_streamlines": n_streamlines}
@@ -217,19 +210,29 @@ class DWIPipeline:
 
 
 class SubjectPaths:
-    """Resolves raw inputs (primary root) and outputs (derivatives root).
+    """Resolves raw inputs and outputs within a per-subject dataset.
 
-    Layout::
+    Layout (Penn-Neurobridge)::
 
-        <primary_root>/<subject>/ses-preimplant/{dwi,fmap,anat}/...
-        <derivatives_root>/<subject>/{freesurfer,preprocessDWI,connectivityDWI}/...
+        <dataset>/primary/sub-<ID>/ses-preimplant/{dwi,fmap,anat}/...
+        <dataset>/derivatives/{freesurfer,preprocessDWI,connectivityDWI,...}/...
+
+    The single ``sub-*`` directory under ``primary/`` is auto-detected.
+    Derivatives are NOT nested under the subject.
     """
 
-    def __init__(self, primary_root: Path, deriv_root: Path, subject: str,
-                 session: str = "ses-preimplant"):
-        self.subject = subject
-        self.primary = Path(primary_root) / subject / session
-        self.deriv = Path(deriv_root) / subject
+    def __init__(self, dataset_path: Path, session: str = "ses-preimplant"):
+        self.dataset = Path(dataset_path)
+
+        primary_root = self.dataset / "primary"
+        subs = sorted(p for p in primary_root.glob("sub-*") if p.is_dir())
+        if len(subs) != 1:
+            raise ValueError(
+                f"Expected exactly one sub-* under {primary_root}, found {len(subs)}"
+            )
+        self.subject = subs[0].name
+        self.primary = subs[0] / session
+        self.deriv = self.dataset / "derivatives"
 
         # ── Raw inputs (primary) ──
         self.dwi = self._one(self.primary / "dwi", "*_dwi.nii.gz")
@@ -278,23 +281,17 @@ class SubjectPaths:
 
 
 def run_dwi_pipeline(
-    subjects: list[str],
-    primary_path: Path,
-    derivatives_path: Path,
+    dataset_paths: list[Path],
     steps: list[str] | None = None,
     config_path: Path | None = None,
     n_streamlines: int = 2_500_000,
 ) -> dict[str, dict]:
-    """Run the core DWI pipeline for multiple subjects.
+    """Run the core DWI pipeline for one or more subject datasets.
 
     Parameters
     ----------
-    subjects : list of str
-        Subject IDs (e.g. ["sub-PennEPIxxx", "sub-PennEPIyyy"]).
-    primary_path : Path
-        BIDS primary root (raw inputs).
-    derivatives_path : Path
-        Derivatives root (outputs).
+    dataset_paths : list of Path
+        Dataset roots, each containing primary/ and derivatives/.
     steps : list of str, optional
         Steps to execute. Default: all six.
     config_path : Path, optional
@@ -307,20 +304,22 @@ def run_dwi_pipeline(
     dict mapping subject IDs to their output dicts.
     """
     cfg = Config(config_path) if config_path else Config()
-    pipeline = DWIPipeline(primary_path, derivatives_path, cfg)
+    pipeline = DWIPipeline(cfg)
     all_results: dict[str, dict] = {}
 
-    for i, rid in enumerate(subjects):
+    for i, ds in enumerate(dataset_paths):
+        ds = Path(ds)
         print(f"\n{'=' * 60}")
-        print(f"Processing {rid} ({i + 1}/{len(subjects)})")
+        print(f"Processing {ds.name} ({i + 1}/{len(dataset_paths)})")
         print(f"{'=' * 60}")
 
-        all_results[rid] = pipeline.run(rid, steps, n_streamlines)
+        result = pipeline.run(ds, steps, n_streamlines)
+        all_results[ds.name] = result
 
-        print(f"  Done: {rid}")
+        print(f"  Done: {ds.name}")
 
     print(f"\n{'=' * 60}")
-    print("All subjects complete")
+    print("All datasets complete")
     print(f"{'=' * 60}")
 
     return all_results

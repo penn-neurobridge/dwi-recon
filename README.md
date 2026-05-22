@@ -90,46 +90,47 @@ This repository provides **two separate pipelines**:
 | **DWI preprocessing** | `dwi-preprocess` | All subjects (tracking, alignment, atlas connectivity) |
 | **iEEG connectivity** | `dwi-ieeg-connectivity` | Only subjects with implanted electrodes |
 
+Each subject is its own **dataset directory** containing `primary/`
+(raw BIDS) and `derivatives/` (outputs). Point the tools at the dataset
+root with `-i/--dataset-path`.
+
 ### 1. DWI Preprocessing (all subjects)
 
 ```bash
-# Full DWI pipeline (default: tracking + alignment + atlas)
-uv run dwi-preprocess \
-    -s sub-PennEPIxxx,sub-PennEPIyyy,sub-PennEPIzzz \
-    -b /path/to/bids
+# Full DWI pipeline on one dataset
+uv run dwi-preprocess -i /path/to/PennEPI000
 
-# Only tracking + alignment (skip atlas)
-uv run dwi-preprocess \
-    -s sub-PennEPIxxx \
-    -b /path/to/bids --steps tracking,alignment
+# Multiple datasets (comma-separated)
+uv run dwi-preprocess -i /path/to/PennEPI000,/path/to/PennEPI001
+
+# Only tracking + alignment (skip eddy/register/reconstruct/atlas)
+uv run dwi-preprocess -i /path/to/PennEPI000 --steps tracking,alignment
 
 # Custom streamline count
-uv run dwi-preprocess \
-    -s sub-PennEPIxxx \
-    -b /path/to/bids --n-streamlines 5000000
+uv run dwi-preprocess -i /path/to/PennEPI000 --n-streamlines 5000000
 ```
 
-| Step | Flag | Description |
-|---|---|---|
-| `tracking` | `--steps tracking` | Iterative fiber tracking (10 x 250K streamlines) with per-point metric export |
-| `alignment` | `--steps alignment` | Compute tract-to-T1 surface RAS transformation |
-| `atlas` | `--steps atlas` | Atlas-based connectivity matrices (Desikan-Killiany + Lausanne) |
+| Step | Description |
+|---|---|
+| `eddy` | TOPUP + eddy distortion/motion correction (FSL) |
+| `register` | EPI-to-T1 boundary-based registration (FSL epi_reg) |
+| `reconstruct` | NIFTI → SRC → GQI fib (DSI Studio) |
+| `tracking` | Iterative fiber tracking (10 x 250K streamlines) with per-point metric export |
+| `alignment` | Compute tract-to-T1 surface RAS transformation + QC |
+| `atlas` | Atlas-based connectivity matrices (Desikan-Killiany + Lausanne) |
 
-### 2. iEEG Connectivity (electrode subjects only)
+### 2. iEEG Connectivity (electrode datasets only)
 
-Requires the DWI pipeline to have run first. Subjects without
-`electrodes2ROI.csv` are automatically skipped.
+Requires the DWI pipeline to have run first. Datasets without
+`derivatives/ieeg_recon/module3/electrodes2ROI.csv` are auto-skipped.
 
 ```bash
 # Default (3mm + 5mm spheres)
-uv run dwi-ieeg-connectivity \
-    -s sub-PennEPIxxx,sub-PennEPIyyy,sub-PennEPIzzz \
-    -b /path/to/bids
+uv run dwi-ieeg-connectivity -i /path/to/PennEPI001
 
-# Custom sphere diameters
-uv run dwi-ieeg-connectivity \
-    -s sub-PennEPIxxx \
-    -b /path/to/bids --sphere-diameters 3,5,10
+# Multiple datasets, custom sphere diameters
+uv run dwi-ieeg-connectivity -i /path/to/PennEPI001,/path/to/PennEPI004 \
+    --sphere-diameters 3,5,10
 ```
 
 Run either command with `--help` for the full Typer-generated help.
@@ -140,18 +141,11 @@ Run either command with `--help` for the full Typer-generated help.
 from pathlib import Path
 from dwi_preprocessing import Config, DWIPipeline, IEEGPipeline, run_dwi_pipeline, run_ieeg_pipeline
 
-# ── DWI pipeline (all subjects) ──
-run_dwi_pipeline(
-    subjects=["sub-PennEPIxxx", "sub-PennEPIyyy"],
-    bids_path=Path("/path/to/bids"),
-)
+# ── DWI pipeline ──
+run_dwi_pipeline(dataset_paths=[Path("/path/to/PennEPI000")])
 
-# ── iEEG pipeline (electrode subjects only) ──
-run_ieeg_pipeline(
-    subjects=["sub-PennEPIxxx"],
-    bids_path=Path("/path/to/bids"),
-    sphere_diameters=[3, 5],
-)
+# ── iEEG pipeline (electrode datasets only) ──
+run_ieeg_pipeline(dataset_paths=[Path("/path/to/PennEPI001")], sphere_diameters=[3, 5])
 
 # ── Use individual modules directly ──
 from dwi_preprocessing.tracking import fiber_tracking_ittr
@@ -164,27 +158,36 @@ electrodes = ieeg_grey2white(freesurfer_dir=Path("..."), electrodes_csv=Path("..
 
 ## Expected Directory Layout
 
-The pipeline expects a BIDS-like directory structure:
+Each subject is a self-contained dataset (Penn-Neurobridge layout): raw
+data under `primary/sub-<ID>/`, all pipeline outputs directly under
+`derivatives/` (not nested per-subject).
 
 ```
-<BIDS_path>/
-  sub-PennEPIxxx/
-    derivatives/
-      freesurfer/           # FreeSurfer recon-all output
-        mri/                # T1.mgz, wm.mgz, brain.mgz, aparc+aseg.mgz
-        surf/               # lh.pial, rh.pial, lh.white, rh.white
-      preprocessDWI/
-        topupEddy/          # Eddy-corrected DWI
-        dsiStudio/          # dwi_eddy.sz, *.gqi.fz, whole_brain_trk.h5, whole_brain_trksubVox.h5
-      connectivityDWI/
-        bbr2freesurferT1/   # DWI-to-T1 registration (dwi_to_t1.txt)
-        tracts_to_T1/       # trk_to_t1surfRAS.txt transform
-        desikanKilliany/    # Atlas connectivity matrices
-        lausanne2018scale*/
-      ieeg_recon/
-        module3/
-          electrodes2ROI.csv  # Electrode coordinates + ROI assignments
-      connectivityIEEG/     # Output: edge lists, connectivity matrices
+<dataset>/                  # e.g. PennEPI000
+  primary/
+    sub-PennEPIxxx/
+      sub-PennEPIxxx_sessions.tsv
+      ses-preimplant/
+        anat/   # *_T1w.nii.gz, *_T2w, *_FLAIR
+        dwi/    # *_dwi.nii.gz, .bval, .bvec, .json
+        fmap/   # *_dir-AP_epi (reversed PE), magnitude1/2, phasediff
+      ses-postimplant/        # (iEEG subjects) ct/, ieeg/
+  derivatives/              # outputs sit directly here (no sub-<ID> layer)
+    freesurfer/             # FreeSurfer recon-all output (input)
+      mri/                  # T1.mgz, wm.mgz, brain.mgz, aparc+aseg.mgz
+      surf/                 # lh.pial, rh.pial, lh.white, rh.white
+    preprocessDWI/
+      topupEddy/            # Eddy-corrected DWI
+      dsiStudio/            # dwi_eddy.sz, *.gqi.fz, whole_brain_trk.h5, whole_brain_trksubVox.h5
+    connectivityDWI/
+      bbr2freesurferT1/     # DWI-to-T1 registration (dwi_to_t1.txt)
+      tracts_to_T1/         # trk_to_t1surfRAS.txt transform + check_alignment.png
+      desikanKilliany/      # Atlas connectivity matrices (connectivity.h5)
+      lausanne2018scale*/
+    ieeg_recon/             # (iEEG subjects) electrode reconstruction
+      module3/
+        electrodes2ROI.csv  # Electrode coordinates + ROI assignments
+    connectivityIEEG/       # Output: edge lists, connectivity matrices
 ```
 
 ## Output Files (HDF5)

@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """CLI entry point for the iEEG structural connectivity pipeline.
 
-Separate from the core DWI pipeline. Only for subjects with implanted
-electrodes (electrodes2ROI.csv from ieeg_recon module 3). Subjects
-without electrode data are automatically skipped.
+Operates on per-subject dataset directories (primary/ + derivatives/).
+Only for datasets with implanted electrodes (electrodes2ROI.csv from
+ieeg_recon module 3). Datasets without electrode data are auto-skipped.
 
 Requires the DWI pipeline to have run first (tracking + alignment).
 
 Usage:
   # Default (3mm + 5mm spheres)
-  uv run dwi-ieeg-connectivity -s sub-PennEPIxxx \\
-      -p /path/to/primary -d /path/to/derivatives
+  uv run dwi-ieeg-connectivity -i /path/to/PennEPI001
 
-  # Custom sphere diameters
-  uv run dwi-ieeg-connectivity -s sub-PennEPIxxx \\
-      -p /path/to/primary -d /path/to/derivatives --sphere-diameters 3,5,10
+  # Multiple datasets, custom sphere diameters
+  uv run dwi-ieeg-connectivity -i /path/to/PennEPI001,/path/to/PennEPI004 \\
+      --sphere-diameters 3,5,10
 """
 
 from pathlib import Path
@@ -27,19 +26,10 @@ app = typer.Typer(add_completion=False)
 
 @app.command()
 def main(
-    subjects: str = typer.Option(
-        ..., "-s", "--subjects",
-        help="Comma-separated subject IDs (e.g. sub-PennEPIxxx,sub-PennEPIyyy)",
-    ),
-    primary_path: Path = typer.Option(
-        ..., "-p", "--primary-path",
-        exists=True, file_okay=False, dir_okay=True,
-        help="BIDS primary root (raw inputs)",
-    ),
-    derivatives_path: Path = typer.Option(
-        ..., "-d", "--derivatives-path",
-        exists=True, file_okay=False, dir_okay=True,
-        help="Derivatives root (DWI outputs + iEEG outputs)",
+    dataset_path: str = typer.Option(
+        ..., "-i", "--dataset-path",
+        help="Dataset root(s) containing primary/ and derivatives/ "
+             "(comma-separated for multiple)",
     ),
     config: Optional[Path] = typer.Option(
         None, "-c", "--config",
@@ -56,25 +46,25 @@ def main(
     ),
 ):
     """iEEG structural connectivity pipeline (electrode-level SC from DWI)."""
-    subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
+    datasets = [Path(p.strip()) for p in dataset_path.split(",") if p.strip()]
 
     try:
         sphere_dias = [float(d.strip()) for d in sphere_diameters.split(",") if d.strip()]
     except ValueError:
         raise typer.BadParameter("Sphere diameters must be numbers (e.g. 3,5,10)")
 
+    for ds in datasets:
+        if not ds.is_dir():
+            raise typer.BadParameter(f"Dataset not found: {ds}")
+
     typer.echo("iEEG Structural Connectivity Pipeline")
-    typer.echo(f"  Subjects:          {subject_list}")
-    typer.echo(f"  Primary:           {primary_path}")
-    typer.echo(f"  Derivatives:       {derivatives_path}")
+    typer.echo(f"  Datasets:          {[d.name for d in datasets]}")
     typer.echo(f"  Sphere diameters:  {sphere_dias}")
 
     from dwi_preprocessing.ieeg_pipeline import run_ieeg_pipeline
 
     run_ieeg_pipeline(
-        subjects=subject_list,
-        primary_path=primary_path,
-        derivatives_path=derivatives_path,
+        dataset_paths=datasets,
         config_path=config,
         sphere_diameters=sphere_dias,
         n_streamlines=n_streamlines,
