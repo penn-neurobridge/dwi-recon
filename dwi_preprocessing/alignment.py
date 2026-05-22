@@ -9,8 +9,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-from dwi_preprocessing.utils.io import load_h5
-from dwi_preprocessing.utils.surfaces import read_surf, vox2ras_tkreg, vox2ras_0to1
+from dwi_preprocessing.utils.surfaces import vox2ras_tkreg, vox2ras_0to1
 
 
 def align_tracts_to_t1(
@@ -107,31 +106,80 @@ def _make_qc_plot(
     xform: np.ndarray,
     freesurfer_dir: Path,
     output_dir: Path,
+    n_points: int = 8000,
 ) -> None:
-    """Generate a QC overlay of transformed tracts on pial surfaces."""
+    """Render transformed tracts over the FreeSurfer pial surface.
+
+    Produces an interactive ``check_alignment.html`` and a static
+    ``check_alignment.png``. The pial surfaces (lh/rh) and the transformed
+    tract coordinates share the same FreeSurfer surface-RAS space.
+
+    Uses plotly Mesh3d for the surfaces (same style as ieeg-recon) and
+    Scatter3d for a subsample of tract points.
+    """
     try:
-        import matplotlib.pyplot as plt
+        import h5py
+        import plotly.graph_objects as go
+        from nibabel.freesurfer.io import read_geometry
 
-        trk_data = load_h5(trk_h5, group="trk")
-        cord = trk_data["cord"]
-        transformed = xform @ cord
+        # Subsampled tract points — read strided directly to stay low-memory
+        with h5py.File(str(trk_h5), "r") as f:
+            cord_ds = f["trk"]["cord"]
+            n_cols = cord_ds.shape[1]
+            step = max(1, n_cols // n_points)
+            cord_sub = cord_ds[:, ::step]  # (4, ~n_points)
+        pts = xform @ cord_sub  # (4, ~n_points), in surface RAS
 
-        lpv, _ = read_surf(str(freesurfer_dir / "surf" / "lh.pial"))
-        rpv, _ = read_surf(str(freesurfer_dir / "surf" / "rh.pial"))
+        # Pial surfaces (native endianness for plotly)
+        lpv, lpf = read_geometry(str(freesurfer_dir / "surf" / "lh.pial"))
+        rpv, rpf = read_geometry(str(freesurfer_dir / "surf" / "rh.pial"))
 
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection="3d")
-        ax.scatter(lpv[::50, 0], lpv[::50, 1], lpv[::50, 2],
-                   s=0.1, alpha=0.1, c="gray")
-        ax.scatter(rpv[::50, 0], rpv[::50, 1], rpv[::50, 2],
-                   s=0.1, alpha=0.1, c="gray")
+        fig = go.Figure()
+        for verts, faces, name in [(lpv, lpf, "Left pial"), (rpv, rpf, "Right pial")]:
+            verts = np.asarray(verts, dtype=np.float64)
+            faces = np.asarray(faces, dtype=np.int64)
+            fig.add_trace(go.Mesh3d(
+                x=verts[:, 0], y=verts[:, 1], z=verts[:, 2],
+                i=faces[:, 0], j=faces[:, 1], k=faces[:, 2],
+                color="#b0b0b0", opacity=0.25, flatshading=False,
+                lighting=dict(ambient=0.45, diffuse=0.8, specular=0.2, roughness=0.6),
+                lightposition=dict(x=100, y=200, z=150),
+                name=name, showscale=False, hoverinfo="skip",
+            ))
 
-        step = max(1, transformed.shape[1] // 5000)
-        ax.scatter(transformed[0, ::step], transformed[1, ::step],
-                   transformed[2, ::step], s=0.3, alpha=0.3, c="blue")
-        ax.set_title("Tract-to-T1 alignment QC")
+        fig.add_trace(go.Scatter3d(
+            x=pts[0], y=pts[1], z=pts[2],
+            mode="markers",
+            marker=dict(size=1.5, color="#1f77b4", opacity=0.5),
+            name="Tracts", hoverinfo="skip",
+        ))
 
-        plt.savefig(str(output_dir / "check_alignment.png"), dpi=150)
-        plt.close()
+        fig.update_layout(
+            title="Tract-to-T1 alignment QC",
+            scene=dict(
+                xaxis=dict(visible=False, showgrid=False, showbackground=False),
+                yaxis=dict(visible=False, showgrid=False, showbackground=False),
+                zaxis=dict(visible=False, showgrid=False, showbackground=False),
+                aspectmode="data",
+                camera=dict(
+                    up=dict(x=0, y=1, z=0),
+                    center=dict(x=0, y=0, z=0),
+                    eye=dict(x=0, y=0, z=2.2),  # superior (top-down) view
+                ),
+                bgcolor="white",
+            ),
+            paper_bgcolor="white",
+            margin=dict(r=0, l=0, b=0, t=30),
+            showlegend=True,
+        )
+
+        fig.write_html(str(output_dir / "check_alignment.html"))
+        try:
+            fig.write_image(
+                str(output_dir / "check_alignment.png"),
+                width=900, height=800, scale=2,
+            )
+        except Exception as e:
+            print(f"  PNG export skipped (needs kaleido): {e}")
     except Exception as e:
         print(f"  QC plot skipped: {e}")
