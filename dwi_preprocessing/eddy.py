@@ -151,7 +151,7 @@ def topup_eddy(
 
     # Eddy
     run([
-        cfg.fsl("eddy_openmp"),
+        _eddy_binary(cfg),
         f"--imain={dwi}",
         f"--mask={hifi_brain}_mask",
         f"--index={idx_file}",
@@ -178,3 +178,17 @@ def topup_eddy(
 def _fslroi(cfg: Config, src: Path, dst: Path, t_min: int, t_size: int) -> None:
     """Extract a sub-volume with fslroi."""
     run([cfg.fsl("fslroi"), src, dst, str(t_min), str(t_size)])
+
+
+def _eddy_binary(cfg: Config) -> str:
+    """Return the available eddy binary for this FSL install.
+
+    FSL renamed the CPU eddy binary across versions: older installs ship
+    'eddy_openmp', newer ones ship 'eddy_cpu' (with 'eddy' as a wrapper).
+    Prefer the OpenMP/CPU variants, falling back to plain 'eddy'.
+    """
+    for name in ("eddy_openmp", "eddy_cpu", "eddy"):
+        if Path(cfg.fsl(name)).is_file():
+            return cfg.fsl(name)
+    # Default to eddy_openmp so the error message names the original tool
+    return cfg.fsl("eddy_openmp")
