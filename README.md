@@ -75,6 +75,30 @@ Notes:
   (~0.24 GB) so plotly/kaleido can render the PNG headless; kaleido launches
   Chrome with `--no-sandbox` automatically, which is what containers need.
 
+### Running with Singularity / Apptainer (HPC)
+
+On clusters without Docker, convert the Docker Hub image to a `.sif` and run
+it with Singularity (or Apptainer — same commands):
+
+```bash
+# Build a .sif from the published image (once)
+singularity pull dwi-recon.sif docker://nishantsinha89/dwi-recon:latest
+
+# Run — bind your dataset to /data inside the container
+singularity run --bind /abs/host/path/PennEPI000:/data \
+    dwi-recon.sif dwi  -i /data
+
+singularity run --bind /abs/host/path/PennEPI001:/data \
+    dwi-recon.sif ieeg -i /data
+```
+
+Singularity runs as **your** user (outputs are user-owned — no `--user`
+needed) and mounts `$HOME`/`/tmp` read-write by default, which DSI Studio
+and kaleido need. The image carries `QT_QPA_PLATFORM=offscreen` and `FSLDIR`
+from the Docker config. If your site forces a clean environment, add
+`--cleanenv` and pass `--env QT_QPA_PLATFORM=offscreen`. On HPC the host is
+x86_64, so the amd64 image runs natively.
+
 ### On AWS
 
 Pull the published image directly, or mirror it to ECR. Run on EC2, ECS,
@@ -247,6 +271,12 @@ single `sub-<ID>` under `primary/`. Raw inputs live under `primary/`; all
 pipeline outputs are written directly under `derivatives/` (no per-subject
 nesting).
 
+> A worked example of this layout is included under
+> [`demodata/PennEPI00049/`](demodata/PennEPI00049) — browse it to see the
+> exact directory structure and file naming. (It contains Pennsieve
+> placeholder stubs, not real volumes, so it illustrates the layout rather
+> than being directly runnable.)
+
 ### Required inputs (you must provide these before running)
 
 ```
@@ -355,6 +385,9 @@ dwi-recon/
       surfaces.py               # FreeSurfer surface + coordinate utilities
       geometry.py               # Point-in-mesh tests (trimesh)
   atlas_lookuptable/            # Parcellation lookup tables + annotation files
+  demodata/PennEPI00049/        # Example dataset layout (Pennsieve placeholder stubs)
+  Dockerfile                    # self-contained image
+  docker-compose.yml            # dwi / ieeg services
   pyproject.toml                # uv / pip project configuration
   uv.lock                       # Locked dependency versions
   setup_environment.json        # Machine-specific tool paths (gitignored)

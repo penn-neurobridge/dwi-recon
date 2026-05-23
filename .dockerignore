@@ -9,3 +9,5 @@ __pycache__
 .ruff_cache
 # local machine config — the image uses setup_environment.docker.json
 setup_environment.json
+# example dataset is not needed in the image
+demodata
